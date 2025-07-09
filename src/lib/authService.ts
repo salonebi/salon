@@ -1,8 +1,8 @@
 // src/lib/authService.ts
 
-import { doc, getDoc, setDoc, updateDoc, Timestamp } from 'firebase/firestore'; // Import updateDoc and Timestamp
+import { doc, getDoc, setDoc, updateDoc, Timestamp, collectionGroup, getDocs, query } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Import storage functions
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from './firebase';
 import { UserProfile, UserRole } from '../types';
 
@@ -19,7 +19,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         const docSnap = await getDoc(userProfileRef);
         if (docSnap.exists()) {
             const data = docSnap.data();
-            // Convert Firestore Timestamp to JavaScript Date object
+            // FIX: Convert Firestore Timestamp to JavaScript Date object for consistency.
             if (data.createdAt && data.createdAt instanceof Timestamp) {
                 data.createdAt = data.createdAt.toDate();
             }
@@ -28,7 +28,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         return null;
     } catch (error) {
         console.error("Error fetching user profile:", error);
-        return null; // Return null on error
+        throw error; // Re-throw to be caught by the calling function
     }
 };
 
@@ -39,25 +39,24 @@ export const createUserProfile = async (user: User, defaultRole: UserRole): Prom
     const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
     const userProfileRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile/data`);
 
+    // FIX: Use nullish coalescing operator (??) to be more defensive against undefined values.
+    // This ensures that any undefined property from the 'user' object becomes null.
     const newUserProfile: UserProfile = {
-        // FIX: Changed from `userId` to `uid` to match the UserProfile type.
         uid: user.uid,
-        // FIX: Changed from `name` to `displayName` to match the UserProfile type.
-        displayName: user.displayName || 'New User',
-        email: user.email || null,
+        displayName: user.displayName ?? 'New User',
+        email: user.email ?? null,
         role: defaultRole,
-        // FIX: Changed from `toISOString()` to a Date object to match the UserProfile type.
-        // Firestore will correctly store this as a Timestamp.
         createdAt: new Date(),
-        photoURL: user.photoURL || null,
+        photoURL: user.photoURL ?? null,
     };
 
     try {
+        // This write operation was causing the 400 Bad Request error, likely due to an undefined value.
         await setDoc(userProfileRef, newUserProfile);
         return newUserProfile;
     } catch (error) {
         console.error("Error creating user profile:", error);
-        throw error; // Re-throw the error to be handled by the caller
+        throw error;
     }
 };
 
@@ -68,7 +67,7 @@ export const updateUserProfile = async (
     userId: string,
     updates: Partial<UserProfile>,
     newPhoto?: File | null
-): Promise<void> => { // Return void as we are just confirming completion
+): Promise<void> => {
     const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
     const userProfileRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
 
@@ -96,10 +95,37 @@ export const updateUserRole = async (userId: string, newRole: UserRole): Promise
     const userProfileRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
 
     try {
-        // Using `updateDoc` is slightly more idiomatic for updates.
         await updateDoc(userProfileRef, { role: newRole });
     } catch (error) {
         console.error(`Error updating role for user ${userId}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Fetches all user profiles from Firestore for the admin dashboard.
+ * This uses a collectionGroup query to get all 'profile' collections.
+ */
+export const getAllUserProfiles = async (): Promise<UserProfile[]> => {
+    // A collection group query gets all collections with a specific ID.
+    // Here, we are getting every collection named 'profile'.
+    const profilesCollectionGroup = collectionGroup(db, 'profile');
+    const q = query(profilesCollectionGroup);
+
+    try {
+        const querySnapshot = await getDocs(q);
+        const profiles: UserProfile[] = [];
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+             // Convert Firestore Timestamp to JavaScript Date object
+            if (data.createdAt && data.createdAt instanceof Timestamp) {
+                data.createdAt = data.createdAt.toDate();
+            }
+            profiles.push(data as UserProfile);
+        });
+        return profiles;
+    } catch (error) {
+        console.error("Error fetching all user profiles:", error);
         throw error;
     }
 };

@@ -1,9 +1,9 @@
 // src/context/AuthContext.tsx
 
-'use client'; 
+'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth'; // Removed signInAnonymously
+import { onAuthStateChanged, User, signOut } from 'firebase/auth'; // Import signOut
 import { auth } from '../lib/firebase';
 import { getUserProfile, createUserProfile } from '../lib/authService';
 import { AuthContextType, UserRole } from '../types';
@@ -27,12 +27,13 @@ export const AuthContextProvider: React.FC<AuthContextProviderProps> = ({ childr
     const [user, setUser] = useState<User | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const [userRole, setUserRole] = useState<UserRole | null>(null);
+    // 'loading' represents the initial auth check. It will be true only once at the start.
     const [loading, setLoading] = useState<boolean>(true);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            // This listener handles all auth changes: initial load, login, logout.
             if (currentUser) {
-                console.log("onAuthStateChanged: User detected:", currentUser.uid);
                 setUser(currentUser);
                 setUserId(currentUser.uid);
 
@@ -40,48 +41,50 @@ export const AuthContextProvider: React.FC<AuthContextProviderProps> = ({ childr
                     let profile = await getUserProfile(currentUser.uid);
 
                     if (!profile) {
-                        console.log("onAuthStateChanged: User profile not found, creating new profile.");
+                        console.log("AuthContext: Profile not found. Creating new profile for user:", currentUser.uid);
+                        toast.info("Welcome! Setting up your new account...");
                         profile = await createUserProfile(currentUser, 'user');
-                        toast.success("Welcome! Your basic user profile has been created.");
+                        toast.success("Your account has been created successfully!");
                     } else {
-                        console.log("onAuthStateChanged: User profile found:", profile);
+                        console.log("AuthContext: Profile found for user:", currentUser.uid);
                     }
+                    
                     setUserRole(profile.role);
+
                 } catch (error) {
-                    console.error("AuthContext: Error managing user profile:", error);
-                    toast.error(`Failed to load or create user profile: ${(error as Error).message}`);
-                    setUserRole(null); // Fallback to null on error
+                    console.error("AuthContext: Critical error managing user profile:", error);
+                    toast.error(`Profile loading failed: ${(error as Error).message}. Signing out for safety.`);
+                    // If profile fails, log the user out to prevent an inconsistent state.
+                    await signOut(auth); // This will re-trigger onAuthStateChanged with `null`.
                 }
             } else {
-                // If no user, set all user-related states to null
-                console.log("onAuthStateChanged: No user detected, clearing state.");
+                // No user is logged in. Clear all user-related state.
                 setUser(null);
                 setUserId(null);
                 setUserRole(null);
             }
-            setLoading(false); 
+            
+            // After the first check is done (either with a user or null), mark loading as complete.
+            if (loading) {
+                setLoading(false);
+            }
         });
 
+        // Cleanup subscription on unmount
         return () => unsubscribe();
-    }, []); // Removed dependencies to run only once on mount
+    }, [loading]); // Dependency on 'loading' helps manage the initial state flip.
 
     const value: AuthContextType = {
         user,
         userId,
         userRole,
         loading,
-        setUserRole, // This is still useful for potential role changes in the future
+        setUserRole,
     };
 
     return (
         <AuthContext.Provider value={value}>
-            {loading ? (
-                <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-                    <div className="text-xl font-semibold text-gray-700">Loading authentication...</div>
-                </div>
-            ) : (
-                children
-            )}
+            {children}
         </AuthContext.Provider>
     );
 };
