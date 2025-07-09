@@ -1,53 +1,53 @@
-// src/types/index.ts
+import { User } from 'firebase/auth';
 
-import { User } from 'firebase/auth'; // Import Firebase User type
+/**
+ * Defines the possible roles a user can have in the application.
+ * Using a string literal union type provides type safety and autocompletion.
+ * 'null' is included to represent a state where the role is not yet determined or applicable.
+ */
+export type UserRole = 'admin' | 'user' | null;
 
-// Define the possible user roles
-export type UserRole = 'user' | 'salon' | 'admin';
-
-// Define the structure for a user's profile stored in Firestore
+/**
+ * Describes the structure of a user's profile data as stored in your database (e.g., Firestore).
+ * This is separate from the Firebase Auth User object and contains application-specific data.
+ */
 export interface UserProfile {
-    userId: string;
-    name: string;
-    email: string;
-    role: UserRole;
-    createdAt: string; // ISO string format
-    // Add any other user-specific fields here
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null; // Optional, as it might not always be present
+  role: UserRole;
+  createdAt: Date; // Useful for tracking when the user profile was created
 }
 
-// Define the shape of the AuthContext value
+/**
+ * Defines the shape of the object provided by the AuthContext.
+ * This is what components will consume when they use the `useAuth()` hook.
+ */
 export interface AuthContextType {
-    user: User | null; // Firebase User object
-    userId: string | null; // Firebase User UID
-    userRole: UserRole | null; // 'user', 'salon', 'admin'
-    loading: boolean; // To indicate initial auth state loading
-    setUserRole: (role: UserRole | null) => void; // Function to update role in context
+  user: User | null;         // The raw Firebase Auth user object (contains uid, email, etc.)
+  userId: string | null;     // The user's unique ID (UID) for quick access
+  userRole: UserRole;        // The user's application-specific role
+  loading: boolean;          // A flag to indicate if the authentication state is still loading
+  setUserRole: (role: UserRole) => void; // A function to allow updating the role in the context state if needed
 }
 
-// Define the shape of the Auth Operations Hook
+/**
+ * Defines the shape of the object returned by the `useAuthOperations` hook.
+ * This provides a clear contract for the authentication functions and their state.
+ */
 export interface AuthOperations {
-    googleSignIn: () => Promise<void>;
-    signOutUser: () => Promise<void>;
-    loadingAuth: boolean; // Loading state for auth operations (sign-in/out)
-    authError: string | null; // Error message for auth operations
+  googleSignIn: () => Promise<void>;
+  signOutUser: () => Promise<void>;
+  loadingAuth: boolean;
+  authError: string | null;
 }
 
-// Define Salon and Staff types (for future use)
-export interface Salon {
-    id: string;
-    name: string;
-    address: string;
-    phone: string;
-    description: string;
-    ownerId: string;
-    googleCalendarId?: string; // Optional: main calendar for the salon
+/**
+ * Defines the shape of the object returned by the `useProfileOperations` hook.
+ */
+export interface ProfileOperations {
+  updateProfile: (userId: string, updates: Partial<UserProfile>, newPhoto?: File | null) => Promise<void>;
+  loadingProfile: boolean;
+  profileError: string | null;
 }
-
-export interface Staff {
-    id: string;
-    name: string;
-    role: string; // e.g., 'Stylist', 'Manager', 'Receptionist'
-    googleCalendarId?: string; // Optional: personal calendar for the staff
-}
-
-// Add other types as your application grows (e.g., Booking, Service)

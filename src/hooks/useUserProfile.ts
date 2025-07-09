@@ -1,65 +1,65 @@
-// src/hooks/useUserProfile.ts
-
-'use client';
-
 import { useState, useEffect } from 'react';
-import { UserProfile, UserRole } from '../types'; // Import UserProfile and UserRole types
-import { getUserProfile } from '../lib/authService'; // Import the service to fetch profile
-import { toast } from 'sonner'; // For toast notifications
-
-interface UseUserProfileResult {
-    userProfile: UserProfile | null;
-    profileLoading: boolean;
-    profileError: string | null;
-}
+import { getUserProfile } from '../lib/authService';
+import { UserProfile, UserRole } from '../types';
+import { toast } from 'sonner';
 
 /**
- * Custom hook to fetch and manage a user's profile data.
- * @param userId The UID of the user whose profile is to be fetched.
- * @param requiredRole (Optional) If provided, the hook will check if the fetched profile matches this role.
- * @returns An object containing userProfile, profileLoading, and profileError.
+ * Custom hook to fetch and validate a user's profile.
+ * @param userId - The ID of the user whose profile to fetch.
+ * @param expectedRole - The role the user is expected to have. Access is denied if roles mismatch.
+ * @returns An object containing the user profile, loading state, and any errors.
  */
-export const useUserProfile = (userId: string | null, requiredRole?: UserRole): UseUserProfileResult => {
+export const useUserProfile = (userId: string | null, expectedRole: UserRole) => {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [profileLoading, setProfileLoading] = useState<boolean>(true);
     const [profileError, setProfileError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchProfile = async () => {
+            // If there's no userId, we can't fetch a profile.
             if (!userId) {
                 setProfileLoading(false);
-                setProfileError("User ID not available.");
                 return;
             }
 
             setProfileLoading(true);
             setProfileError(null);
+
             try {
                 const profile = await getUserProfile(userId);
-                if (profile) {
-                    if (requiredRole && profile.role !== requiredRole) {
-                        setProfileError(`Access Denied: Role mismatch. Expected ${requiredRole}, got ${profile.role}.`);
-                        setUserProfile(null);
-                        toast.error(`Access Denied: Invalid role for this page.`);
-                    } else {
-                        setUserProfile(profile);
-                    }
-                } else {
-                    setProfileError("User profile not found in database.");
+
+                if (!profile) {
+                    const errorMessage = "Your user profile could not be found.";
+                    toast.error(errorMessage);
+                    setProfileError(errorMessage);
                     setUserProfile(null);
-                    toast.error("User profile not found.");
+                    return;
                 }
+
+                // Security check: ensure the fetched profile has the expected role for this page.
+                if (profile.role !== expectedRole) {
+                    const errorMessage = `Access Denied: This page is for '${expectedRole}' users only.`;
+                    toast.error(errorMessage);
+                    setProfileError(errorMessage);
+                    setUserProfile(null); // Do not set profile if role is incorrect
+                    return;
+                }
+
+                setUserProfile(profile);
+
             } catch (error) {
-                console.error("Error fetching user profile:", error);
-                setProfileError(`Failed to load profile: ${(error as Error).message}`);
-                toast.error(`Failed to load profile: ${(error as Error).message}`);
+                const errorMessage = `Failed to fetch user profile: ${(error as Error).message}`;
+                console.error("useUserProfile Hook Error:", error);
+                toast.error(errorMessage);
+                setProfileError(errorMessage);
+                setUserProfile(null);
             } finally {
                 setProfileLoading(false);
             }
         };
 
         fetchProfile();
-    }, [userId, requiredRole]); // Re-run when userId or requiredRole changes
+    }, [userId, expectedRole]); // Rerun effect if userId or expectedRole changes
 
     return { userProfile, profileLoading, profileError };
 };

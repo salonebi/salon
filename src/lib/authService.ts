@@ -1,14 +1,15 @@
 // src/lib/authService.ts
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { User } from 'firebase/auth'; // Import Firebase User type
-import { db } from './firebase'; // Import your Firestore instance
-import { UserProfile, UserRole } from '../types'; // Import your types
+import { doc, getDoc, setDoc, updateDoc, Timestamp } from 'firebase/firestore'; // Import updateDoc and Timestamp
+import { User } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Import storage functions
+import { db } from './firebase';
+import { UserProfile, UserRole } from '../types';
+
+const storage = getStorage();
 
 /**
  * Fetches a user's profile from Firestore.
- * @param userId The UID of the user.
- * @returns A UserProfile object or null if not found.
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
     const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
@@ -17,57 +18,86 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     try {
         const docSnap = await getDoc(userProfileRef);
         if (docSnap.exists()) {
-            return docSnap.data() as UserProfile;
+            const data = docSnap.data();
+            // Convert Firestore Timestamp to JavaScript Date object
+            if (data.createdAt && data.createdAt instanceof Timestamp) {
+                data.createdAt = data.createdAt.toDate();
+            }
+            return data as UserProfile;
         }
         return null;
     } catch (error) {
         console.error("Error fetching user profile:", error);
-        return null;
+        return null; // Return null on error
     }
 };
 
 /**
  * Creates a new user profile in Firestore.
- * This is typically called when a user first signs in (e.g., via Google)
- * and no profile exists yet.
- * @param user The Firebase User object.
- * @param defaultRole The default role to assign (e.g., 'user').
- * @returns The created UserProfile object.
  */
 export const createUserProfile = async (user: User, defaultRole: UserRole): Promise<UserProfile> => {
     const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
     const userProfileRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile/data`);
 
     const newUserProfile: UserProfile = {
-        userId: user.uid,
-        name: user.displayName || 'New User',
-        email: user.email || '',
+        // FIX: Changed from `userId` to `uid` to match the UserProfile type.
+        uid: user.uid,
+        // FIX: Changed from `name` to `displayName` to match the UserProfile type.
+        displayName: user.displayName || 'New User',
+        email: user.email || null,
         role: defaultRole,
-        createdAt: new Date().toISOString(),
+        // FIX: Changed from `toISOString()` to a Date object to match the UserProfile type.
+        // Firestore will correctly store this as a Timestamp.
+        createdAt: new Date(),
+        photoURL: user.photoURL || null,
     };
 
     try {
         await setDoc(userProfileRef, newUserProfile);
-        console.log("New user profile created in Firestore with role:", defaultRole);
         return newUserProfile;
     } catch (error) {
         console.error("Error creating user profile:", error);
-        throw error; // Re-throw to be handled by calling context/component
+        throw error; // Re-throw the error to be handled by the caller
     }
 };
 
 /**
- * Updates a user's role in Firestore. This would primarily be used by an Admin.
- * @param userId The UID of the user.
- * @param newRole The new role to assign.
+ * Updates a user's profile in Firestore and optionally uploads a new profile photo.
+ */
+export const updateUserProfile = async (
+    userId: string,
+    updates: Partial<UserProfile>,
+    newPhoto?: File | null
+): Promise<void> => { // Return void as we are just confirming completion
+    const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
+    const userProfileRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
+
+    const finalUpdates: { [key: string]: any } = { ...updates };
+
+    if (newPhoto) {
+        const photoRef = ref(storage, `profile-photos/${userId}/${newPhoto.name}`);
+        await uploadBytes(photoRef, newPhoto);
+        finalUpdates.photoURL = await getDownloadURL(photoRef);
+    }
+
+    try {
+        await updateDoc(userProfileRef, finalUpdates);
+    } catch (error) {
+        console.error("Error updating user profile:", error);
+        throw error;
+    }
+};
+
+/**
+ * Updates a user's role in Firestore.
  */
 export const updateUserRole = async (userId: string, newRole: UserRole): Promise<void> => {
     const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
     const userProfileRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
 
     try {
-        await setDoc(userProfileRef, { role: newRole }, { merge: true });
-        console.log(`User ${userId} role updated to ${newRole}`);
+        // Using `updateDoc` is slightly more idiomatic for updates.
+        await updateDoc(userProfileRef, { role: newRole });
     } catch (error) {
         console.error(`Error updating role for user ${userId}:`, error);
         throw error;

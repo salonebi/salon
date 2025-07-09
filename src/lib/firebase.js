@@ -1,22 +1,27 @@
 // src/lib/firebase.js
 
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth'; // Added GoogleAuthProvider, signInWithPopup
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Your web app's Firebase configuration
+// Your web app's Firebase configuration, now read from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyDQNacj_l82Dm-cOqsob5Odj9U8hGipHv8",
-  authDomain: "salon-7525d.firebaseapp.com",
-  projectId: "salon-7525d",
-  storageBucket: "salon-7525d.firebasestorage.app",
-  messagingSenderId: "1095273299179",
-  appId: "1:1095273299179:web:fef9aa21f78c2225fb12ae",
-  measurementId: "G-QR7QZ6F4DV"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase only if it hasn't been initialized yet
+let app;
+if (!getApps().length) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApps()[0];
+}
 
 // Initialize Firebase services
 const auth = getAuth(app);
@@ -26,4 +31,4 @@ const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
 // Export the initialized services and the Google provider
-export { app, auth, db, googleProvider, signInWithPopup }; // Export signInWithPopup and googleProvider
+export { app, auth, db, googleProvider, signInWithPopup };
