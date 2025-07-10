@@ -1,26 +1,13 @@
 {
-  "hosting": {
-    "source": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "apphosting": "api-salon"
-      }
-    ]
-  },
   "apphosting": {
-    "backendId": "api-salon",
+    "backendId": "api-salonebi",
     "rootDir": "/",
     "ignore": [
       "node_modules",
       ".git",
       "firebase-debug.log",
-      "firebase-debug.*.log"
+      "firebase-debug.*.log",
+      "functions"
     ]
   }
 }
