@@ -1,5 +1,3 @@
-// src/hooks/useProfileOperations.ts
-
 'use client';
 
 import { useState } from 'react';
