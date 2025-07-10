@@ -51,3 +51,24 @@ export interface ProfileOperations {
   loadingProfile: boolean;
   profileError: string | null;
 }
+
+export interface Salon {
+  id: string; // Document ID from Firestore
+  name: string;
+  address: string;
+  description: string;
+  ownerId: string; // The userId of the user who is the primary owner/manager of this salon
+  // Add other salon-specific fields as needed (e.g., phone, email, services, images, operatingHours)
+}
+
+/**
+ * Defines the structure for a Staff member document within a Salon's sub-collection.
+ * Stored in: artifacts/{appId}/public/data/salons/{salonId}/staff/{staffUserId}
+ */
+export interface SalonStaff {
+  id: string; // The userId of the staff member (same as their global Firebase UID)
+  name: string; // Staff member's display name
+  email: string; // Staff member's email
+  roleInSalon: 'manager' | 'stylist' | 'receptionist' | 'other'; // Role specific to this salon
+  // Add other staff-specific fields as needed (e.g., specialties, availability, linkedGoogleCalendarId)
+}

@@ -26,8 +26,6 @@ const RegisterUserPage: React.FC = () => {
         setMessage(''); // Clear previous messages
         try {
             await googleSignIn(); // This handles the Google auth and profile creation in AuthContext
-            setMessage('Registration successful via Google! Redirecting to dashboard...');
-            router.push('/dashboard/user'); // Redirect to user dashboard
         } catch (error) {
             // Error handled by useAuthOperations, message set by useEffect
         }

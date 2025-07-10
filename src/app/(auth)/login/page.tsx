@@ -22,12 +22,8 @@ const LoginPage: React.FC = () => {
         setMessage('');
         try {
             await googleSignIn();
-            // AuthContext now handles profile creation, so we just need to redirect.
             setMessage('Authentication successful! Redirecting to your dashboard...');
-            // The DashboardLayout will handle role-based redirection.
-            router.push('/dashboard/user'); 
         } catch (error) {
-            // Error is already handled by the useAuthOperations hook.
         }
     };
 

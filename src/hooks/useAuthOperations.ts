@@ -13,9 +13,8 @@ import { AppRoutes } from '@/routes/appRoutes'; // Import AppRoutes for consiste
 
 const googleProvider = new GoogleAuthProvider();
 
-// Define __app_id for Firestore path construction, similar to AuthContext
-declare const __app_id: string | undefined;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// Correctly define appId using NEXT_PUBLIC_FIREBASE_APP_ID from environment variables
+const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 
 /**
  * Custom hook for handling Google Sign-In and Sign-Out operations.
@@ -46,12 +45,19 @@ export const useAuthOperations = (): AuthOperations => {
                     const userData = userProfileSnap.data();
                     const userRole = userData.role;
 
+                    // --- DEBUGGING LINE ---
+                    console.log("User role fetched from Firestore:", userRole);
+                    // --- END DEBUGGING LINE ---
+
                     switch (userRole) {
                         case 'admin':
                             redirectPath = AppRoutes.ADMIN_DASHBOARD;
                             break;
-                        case 'user':
-                        default:
+                        case 'salon': // Re-added case for 'salon' role
+                            redirectPath = AppRoutes.SALON_DASHBOARD;
+                            break;
+                        case 'user': // Explicitly handle 'user' role
+                        default: // Fallback for any other unexpected role or if role is not set
                             redirectPath = AppRoutes.USER_DASHBOARD;
                             break;
                     }
@@ -60,6 +66,7 @@ export const useAuthOperations = (): AuthOperations => {
                     // the AuthContext should handle creating a default 'user' profile.
                     // We'll still redirect to the user dashboard as a fallback.
                     console.warn("User profile not found after sign-in. Defaulting to user dashboard.");
+                    redirectPath = AppRoutes.USER_DASHBOARD; // Ensure it defaults to user dashboard
                 }
 
                 toast.success("Signed in with Google successfully!");
