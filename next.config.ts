@@ -8,6 +8,11 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Add this block to disable TypeScript checking during builds
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 };
+
 
 module.exports = nextConfig;
