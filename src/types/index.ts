@@ -1,3 +1,5 @@
+// src/types/index.ts
+
 import { User } from 'firebase/auth';
 
 /**
@@ -71,4 +73,42 @@ export interface SalonStaff {
   email: string; // Staff member's email
   roleInSalon: 'manager' | 'stylist' | 'receptionist' | 'other'; // Role specific to this salon
   // Add other staff-specific fields as needed (e.g., specialties, availability, linkedGoogleCalendarId)
+}
+
+/**
+ * Defines the expected shape of data returned by callable Cloud Functions.
+ */
+export interface CallableResult {
+  message: string;
+  id?: string; // Optional, as addSalon returns an ID, but update/delete might not
+}
+
+// --- New interfaces for Callable Function input data ---
+
+/**
+ * Defines the input data for the 'addSalon' callable function.
+ */
+export interface AddSalonData {
+  name: string;
+  address: string;
+  description: string;
+  ownerId: string;
+}
+
+/**
+ * Defines the input data for the 'updateSalon' callable function.
+ */
+export interface UpdateSalonData {
+  id: string;
+  name?: string;
+  address?: string;
+  description?: string;
+  ownerId?: string;
+}
+
+/**
+ * Defines the input data for the 'deleteSalon' callable function.
+ */
+export interface DeleteSalonData {
+  id: string;
 }

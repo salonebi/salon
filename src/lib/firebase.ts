@@ -1,6 +1,6 @@
 // src/lib/firebase.js
 
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app'; // Import FirebaseApp
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
@@ -16,7 +16,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase only if it hasn't been initialized yet
-let app;
+let app: FirebaseApp; 
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
 } else {

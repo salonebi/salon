@@ -3,19 +3,25 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../../../lib/firebase'; // Adjust path as needed
+import { collection, getDocs, doc } from 'firebase/firestore';
+import { db, app } from '../../../../lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { toast } from 'sonner';
-import { Salon } from '../../../../types'; // Import the Salon interface
+import { Salon, CallableResult } from '../../../../types'; // Import CallableResult
 
-// Define __app_id for Firestore path construction
-declare const __app_id: string | undefined;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// Initialize Firebase Functions client
+const functions = getFunctions(app);
+// Specify the expected output type for httpsCallable
+const addSalonCallable = httpsCallable<any, CallableResult>(functions, 'addSalon');
+const updateSalonCallable = httpsCallable<any, CallableResult>(functions, 'updateSalon');
+const deleteSalonCallable = httpsCallable<any, CallableResult>(functions, 'deleteSalon');
+
+// Client-side appId for direct Firestore reads (if not via callable functions)
+const clientAppId = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'default-app-id'; // Corrected environment variable
 
 /**
  * AdminSalonsPage component.
- * Allows administrators to manage (create, list, edit, delete) salon records.
- * When creating a salon, an ownerId (Firebase UID of an existing user) must be provided.
+ * Allows administrators to manage (create, list, edit, delete) salon records via Cloud Functions.
  */
 const AdminSalonsPage = () => {
   const [salons, setSalons] = useState<Salon[]>([]);
@@ -40,13 +46,14 @@ const AdminSalonsPage = () => {
   }, []);
 
   /**
-   * Fetches all salon documents from Firestore.
+   * Fetches all salon documents directly from Firestore (read operation).
+   * For read operations that don't modify data, direct client access can be fine with proper security rules.
    */
   const fetchSalons = async () => {
     setLoading(true);
     setError(null);
     try {
-      const salonsCollectionRef = collection(db, `artifacts/${appId}/public/data/salons`);
+      const salonsCollectionRef = collection(db, `artifacts/${clientAppId}/public/data/salons`);
       const querySnapshot = await getDocs(salonsCollectionRef);
       const fetchedSalons: Salon[] = querySnapshot.docs.map(doc => ({
         id: doc.id,
@@ -66,7 +73,7 @@ const AdminSalonsPage = () => {
   };
 
   /**
-   * Handles adding a new salon to Firestore.
+   * Handles adding a new salon via Cloud Function.
    */
   const handleAddSalon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,14 +84,15 @@ const AdminSalonsPage = () => {
 
     setLoading(true);
     try {
-      const salonsCollectionRef = collection(db, `artifacts/${appId}/public/data/salons`);
-      await addDoc(salonsCollectionRef, {
+      // Call the Cloud Function instead of direct Firestore addDoc
+      const result = await addSalonCallable({
         name: newSalonName,
         address: newSalonAddress,
         description: newSalonDescription,
-        ownerId: newSalonOwnerId, // Assign the owner's UID
+        ownerId: newSalonOwnerId,
+        // appId is NOT sent from client; it's derived securely on the backend
       });
-      toast.success("Salon added successfully!");
+      toast.success(result.data.message);
       setNewSalonName('');
       setNewSalonAddress('');
       setNewSalonDescription('');
@@ -110,7 +118,7 @@ const AdminSalonsPage = () => {
   };
 
   /**
-   * Handles updating an existing salon in Firestore.
+   * Handles updating an existing salon via Cloud Function.
    */
   const handleUpdateSalon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,14 +129,16 @@ const AdminSalonsPage = () => {
 
     setLoading(true);
     try {
-      const salonDocRef = doc(db, `artifacts/${appId}/public/data/salons`, editingSalonId);
-      await updateDoc(salonDocRef, {
+      // Call the Cloud Function instead of direct Firestore updateDoc
+      const result = await updateSalonCallable({
+        id: editingSalonId,
         name: editSalonName,
         address: editSalonAddress,
         description: editSalonDescription,
         ownerId: editSalonOwnerId,
+        // appId is NOT sent from client
       });
-      toast.success("Salon updated successfully!");
+      toast.success(result.data.message);
       setEditingSalonId(null); // Exit editing mode
       fetchSalons(); // Refresh the list
     } catch (err: any) {
@@ -140,15 +150,15 @@ const AdminSalonsPage = () => {
   };
 
   /**
-   * Handles deleting a salon from Firestore.
+   * Handles deleting a salon via Cloud Function.
    */
   const handleDeleteSalon = async (salonId: string) => {
     if (window.confirm("Are you sure you want to delete this salon? This action cannot be undone.")) {
       setLoading(true);
       try {
-        const salonDocRef = doc(db, `artifacts/${appId}/public/data/salons`, salonId);
-        await deleteDoc(salonDocRef);
-        toast.success("Salon deleted successfully!");
+        // Call the Cloud Function instead of direct Firestore deleteDoc
+        const result = await deleteSalonCallable({ id: salonId }); // appId is NOT sent from client
+        toast.success(result.data.message);
         fetchSalons(); // Refresh the list
       } catch (err: any) {
         console.error("Error deleting salon:", err);
