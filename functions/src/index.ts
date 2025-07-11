@@ -2,33 +2,31 @@
 
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { AddSalonData, UpdateSalonData, DeleteSalonData } from '../../src/types'; // Import new types
 
 // Initialize Firebase Admin SDK
+// This is automatically done in Cloud Functions environment,
+// but explicitly calling it ensures it's initialized for local testing or other environments.
 admin.initializeApp();
 
 const db = admin.firestore();
-
-// Securely derive the APP_ID from a Cloud Function environment variable.
-// This variable MUST be set in your Firebase project configuration.
-const APP_ID = functions.config().app_config.app_id;
+const authAdmin = admin.auth(); // Initialize Firebase Auth Admin SDK
 
 // Define the base path for user profiles to check roles
-const getUserProfilePath = (userId: string) => `artifacts/${APP_ID}/users/${userId}/profile/data`;
+const getUserProfilePath = (appId: string, userId: string) => `artifacts/${appId}/users/${userId}/profile/data`;
 // Define the base path for public salon data
-const getSalonsCollectionPath = () => `artifacts/${APP_ID}/public/data/salons`;
+const getSalonsCollectionPath = (appId: string) => `artifacts/${appId}/public/data/salons`;
 
 /**
  * Helper function to verify if the caller is an authenticated administrator.
  * Throws an HttpsError if not authorized.
  */
-async function assertAdmin(context: functions.https.CallableContext) {
+async function assertAdmin(context: functions.https.CallableContext, appId: string) {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
   }
 
   const userId = context.auth.uid;
-  const userProfileRef = db.doc(getUserProfilePath(userId));
+  const userProfileRef = db.doc(getUserProfilePath(appId, userId));
   const userProfileSnap = await userProfileRef.get();
 
   if (!userProfileSnap.exists) {
@@ -42,44 +40,82 @@ async function assertAdmin(context: functions.https.CallableContext) {
 }
 
 /**
+ * Interface for the data payload of the addSalon callable function.
+ */
+interface AddSalonData {
+  name: string;
+  address: string;
+  description: string;
+  ownerEmail: string;
+  appId: string;
+}
+
+/**
  * Callable Cloud Function to add a new salon.
  * Requires admin privileges.
+ * Assigns ownership via owner's email.
  *
- * @param {object} data - The data for the new salon: { name: string, address: string, description: string, ownerId: string }
+ * @param {AddSalonData} data - The data for the new salon.
  * @param {functions.https.CallableContext} context - The context of the function call.
  */
 export const addSalon = functions.https.onCall(async (data: AddSalonData, context: functions.https.CallableContext) => {
-  const { name, address, description, ownerId } = data;
+  const { name, address, description, ownerEmail, appId } = data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context);
+  await assertAdmin(context, appId);
 
   // 2. Validate input data
-  if (!name || !address || !description || !ownerId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing required salon fields.');
+  if (!name || !address || !description || !ownerEmail || !appId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required salon fields or owner email.');
+  }
+
+  let ownerId: string;
+  try {
+    // 3. Look up owner's UID by email
+    const userRecord = await authAdmin.getUserByEmail(ownerEmail);
+    ownerId = userRecord.uid;
+  } catch (error: any) {
+    console.error("Error looking up owner by email:", ownerEmail, error);
+    if (error.code === 'auth/user-not-found') {
+      throw new functions.https.HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
+    }
+    throw new functions.https.HttpsError('internal', 'Failed to verify owner email.', error.message);
   }
 
   try {
-    // 3. Add the salon document to Firestore
-    const newSalonRef = await db.collection(getSalonsCollectionPath()).add({
+    // 4. Add the salon document to Firestore
+    const newSalonRef = await db.collection(getSalonsCollectionPath(appId)).add({
       name,
       address,
       description,
-      ownerId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      ownerId, // Store the UID
+      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Add timestamp
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Optional: Update the owner's global role to 'salon' if they are currently 'user'
-    const ownerProfileRef = db.doc(getUserProfilePath(ownerId));
+    // 5. Optional: Update the owner's global role to 'salon' if they are currently 'user'
+    const ownerProfileRef = db.doc(getUserProfilePath(appId, ownerId));
     const ownerProfileSnap = await ownerProfileRef.get();
 
     if (ownerProfileSnap.exists && ownerProfileSnap.data()?.role === 'user') {
       await ownerProfileRef.update({ role: 'salon' });
       console.log(`Updated owner ${ownerId} role to 'salon' for new salon ${newSalonRef.id}`);
     } else if (!ownerProfileSnap.exists) {
-      console.warn(`Owner profile for UID ${ownerId} not found when adding salon. Role not updated.`);
+      // If the owner profile doesn't exist, create a basic one with 'salon' role
+      // This handles cases where an admin assigns a salon to a user who hasn't logged in yet
+      await ownerProfileRef.set({
+        email: ownerEmail, // Store email for reference
+        role: 'salon',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }); // Use merge to avoid overwriting if partial profile exists
+      console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
     }
+
+    // 6. Optional: Send an invitation email to the ownerEmail
+    // This would involve integrating with an email service (e.g., SendGrid, Nodemailer)
+    // For example: await sendInvitationEmail(ownerEmail, name);
+    console.log(`Invitation to manage salon ${name} could be sent to ${ownerEmail}.`);
+
 
     return { id: newSalonRef.id, message: 'Salon added successfully!' };
   } catch (error: any) {
@@ -89,33 +125,78 @@ export const addSalon = functions.https.onCall(async (data: AddSalonData, contex
 });
 
 /**
+ * Interface for the data payload of the updateSalon callable function.
+ */
+interface UpdateSalonData {
+  id: string;
+  name?: string;
+  address?: string;
+  description?: string;
+  ownerEmail?: string;
+  appId: string;
+}
+
+/**
  * Callable Cloud Function to update an existing salon.
  * Requires admin privileges.
+ * Can update owner via owner's email.
  *
- * @param {object} data - The update data: { id: string, name?: string, address?: string, description?: string, ownerId?: string }
+ * @param {UpdateSalonData} data - The update data.
  * @param {functions.https.CallableContext} context - The context of the function call.
  */
 export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, context: functions.https.CallableContext) => {
-  const { id, name, address, description, ownerId } = data;
+  const { id, name, address, description, ownerEmail, appId } = data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context);
+  await assertAdmin(context, appId);
 
   // 2. Validate input data
-  if (!id || (!name && !address && !description && !ownerId)) {
+  if (!id || !appId || (!name && !address && !description && !ownerEmail)) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing salon ID or update fields.');
   }
 
+  let ownerId: string | undefined;
+  if (ownerEmail) {
+    try {
+      // 3. Look up new owner's UID by email if email is provided for update
+      const userRecord = await authAdmin.getUserByEmail(ownerEmail);
+      ownerId = userRecord.uid;
+    } catch (error: any) {
+      console.error("Error looking up new owner by email:", ownerEmail, error);
+      if (error.code === 'auth/user-not-found') {
+        throw new functions.https.HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
+      }
+      throw new functions.https.HttpsError('internal', 'Failed to verify new owner email.', error.message);
+    }
+  }
+
   try {
-    // 3. Update the salon document in Firestore
-    const salonDocRef = db.doc(`${getSalonsCollectionPath()}/${id}`);
+    // 4. Update the salon document in Firestore
+    const salonDocRef = db.doc(`${getSalonsCollectionPath(appId)}/${id}`);
     const updateData: { [key: string]: any } = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (name) updateData.name = name;
     if (address) updateData.address = address;
     if (description) updateData.description = description;
-    if (ownerId) updateData.ownerId = ownerId;
+    if (ownerId) { // Use the resolved ownerId if it was provided
+      updateData.ownerId = ownerId;
+
+      // Optional: Update the new owner's global role to 'salon'
+      const newOwnerProfileRef = db.doc(getUserProfilePath(appId, ownerId));
+      const newOwnerProfileSnap = await newOwnerProfileRef.get();
+      if (newOwnerProfileSnap.exists && newOwnerProfileSnap.data()?.role === 'user') {
+        await newOwnerProfileRef.update({ role: 'salon' });
+        console.log(`Updated new owner ${ownerId} role to 'salon' for salon ${id}`);
+      } else if (!newOwnerProfileSnap.exists) {
+         await newOwnerProfileRef.set({
+            email: ownerEmail,
+            role: 'salon',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+         }, { merge: true });
+         console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
+      }
+    }
 
     await salonDocRef.update(updateData);
 
@@ -127,27 +208,39 @@ export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, 
 });
 
 /**
+ * Interface for the data payload of the deleteSalon callable function.
+ */
+interface DeleteSalonData {
+  id: string;
+  appId: string;
+}
+
+/**
  * Callable Cloud Function to delete a salon.
  * Requires admin privileges.
  *
- * @param {object} data - The data containing the salon ID: { id: string }
+ * @param {DeleteSalonData} data - The data containing the salon ID.
  * @param {functions.https.CallableContext} context - The context of the function call.
  */
 export const deleteSalon = functions.https.onCall(async (data: DeleteSalonData, context: functions.https.CallableContext) => {
-  const { id } = data;
+  const { id, appId } = data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context);
+  await assertAdmin(context, appId);
 
   // 2. Validate input data
-  if (!id) {
+  if (!id || !appId) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing salon ID.');
   }
 
   try {
     // 3. Delete the salon document from Firestore
-    const salonDocRef = db.doc(`${getSalonsCollectionPath()}/${id}`);
+    const salonDocRef = db.doc(`${getSalonsCollectionPath(appId)}/${id}`);
     await salonDocRef.delete();
+
+    // Optional: Clean up associated staff sub-collections, bookings, etc.
+    // This can be done with a recursive delete function or by handling it on the client.
+    // For simplicity, this function only deletes the main salon document.
 
     return { message: 'Salon deleted successfully!' };
   } catch (error: any) {
