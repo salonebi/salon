@@ -2,29 +2,42 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc } from 'firebase/firestore';
-import { db, app } from '../../../../lib/firebase';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import React, { useState, useEffect, useCallback } from 'react';
+import { collection, getDocs } from 'firebase/firestore'; // Keep getDocs for initial fetch
+import { db, app } from '../../../../lib/firebase'; // Adjust path, ensure 'app' is exported from firebase.ts
+import { getFunctions, httpsCallable } from 'firebase/functions'; // Import for Cloud Functions
 import { toast } from 'sonner';
-import { Salon, CallableResult } from '../../../../types'; // Import CallableResult
+import { Salon } from '../../../../types'; // Import the Salon interface
+
+// Client-side appId for direct Firestore reads (if not via callable functions)
+// Corrected to use NEXT_PUBLIC_FIREBASE_APP_ID
+const clientAppId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 
 // Initialize Firebase Functions client
 const functions = getFunctions(app);
-// Specify the expected output type for httpsCallable
-const addSalonCallable = httpsCallable<any, CallableResult>(functions, 'addSalon');
-const updateSalonCallable = httpsCallable<any, CallableResult>(functions, 'updateSalon');
-const deleteSalonCallable = httpsCallable<any, CallableResult>(functions, 'deleteSalon');
 
-// Client-side appId for direct Firestore reads (if not via callable functions)
-const clientAppId = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'default-app-id'; // Corrected environment variable
+// Define callable functions
+const addSalonCallable = httpsCallable<any, { id: string; message: string }>(functions, 'addSalon');
+const updateSalonCallable = httpsCallable<any, { message: string }>(functions, 'updateSalon');
+const deleteSalonCallable = httpsCallable<any, { message: string }>(functions, 'deleteSalon');
+
+/**
+ * Interface for a basic user profile needed for owner suggestions.
+ */
+interface UserForSuggestion {
+  uid: string;
+  email: string;
+  // You might want to include name as well if you want to display it
+}
 
 /**
  * AdminSalonsPage component.
  * Allows administrators to manage (create, list, edit, delete) salon records via Cloud Functions.
+ * Now includes a dropdown for suggesting owner emails.
  */
 const AdminSalonsPage = () => {
   const [salons, setSalons] = useState<Salon[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<UserForSuggestion[]>([]); // New state for user suggestions
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,24 +45,17 @@ const AdminSalonsPage = () => {
   const [newSalonName, setNewSalonName] = useState<string>('');
   const [newSalonAddress, setNewSalonAddress] = useState<string>('');
   const [newSalonDescription, setNewSalonDescription] = useState<string>('');
-  const [newSalonOwnerId, setNewSalonOwnerId] = useState<string>(''); // User ID of the salon owner
+  const [newSalonOwnerEmail, setNewSalonOwnerEmail] = useState<string>(''); // Owner Email for creation
 
   // State for editing a salon
   const [editingSalonId, setEditingSalonId] = useState<string | null>(null);
   const [editSalonName, setEditSalonName] = useState<string>('');
   const [editSalonAddress, setEditSalonAddress] = useState<string>('');
   const [editSalonDescription, setEditSalonDescription] = useState<string>('');
-  const [editSalonOwnerId, setEditSalonOwnerId] = useState<string>('');
+  const [editSalonOwnerEmail, setEditSalonOwnerEmail] = useState<string>(''); // Owner Email for editing
 
-  useEffect(() => {
-    fetchSalons();
-  }, []);
-
-  /**
-   * Fetches all salon documents directly from Firestore (read operation).
-   * For read operations that don't modify data, direct client access can be fine with proper security rules.
-   */
-  const fetchSalons = async () => {
+  // Fetch Salons (memoized with useCallback)
+  const fetchSalons = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,37 +76,71 @@ const AdminSalonsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Fetch Users for Suggestions (new useCallback)
+  const fetchUsersForSuggestions = useCallback(async () => {
+    try {
+      // Assuming admin has read access to other user profiles based on security rules
+      const usersCollectionRef = collection(db, `artifacts/${clientAppId}/users`);
+      const querySnapshot = await getDocs(usersCollectionRef); // You might want to query subcollection '/profile/data' directly
+      const fetchedUsers: UserForSuggestion[] = [];
+      
+      // Iterate through user documents to find their profile/data subcollection
+      for (const userDoc of querySnapshot.docs) {
+          const profileRef = collection(db, `artifacts/${clientAppId}/users/${userDoc.id}/profile`);
+          const profileSnapshot = await getDocs(profileRef); // This fetches all docs in 'profile'
+          
+          profileSnapshot.forEach(profileDoc => {
+              if (profileDoc.id === 'data') { // Assuming the profile data is in a doc named 'data'
+                  const userData = profileDoc.data();
+                  if (userData.email && userDoc.id) { // Ensure email and uid exist
+                      fetchedUsers.push({ uid: userDoc.id, email: userData.email });
+                  }
+              }
+          });
+      }
+      
+      setAvailableUsers(fetchedUsers);
+    } catch (err: any) {
+      console.error("Error fetching users for suggestions:", err);
+      toast.error(`Failed to load user suggestions: ${err.message}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSalons();
+    fetchUsersForSuggestions(); // Fetch users when component mounts
+  }, [fetchSalons, fetchUsersForSuggestions]); // Depend on memoized callbacks
 
   /**
    * Handles adding a new salon via Cloud Function.
    */
   const handleAddSalon = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSalonName || !newSalonAddress || !newSalonDescription || !newSalonOwnerId) {
+    if (!newSalonName || !newSalonAddress || !newSalonDescription || !newSalonOwnerEmail) {
       toast.error("Please fill in all fields for the new salon.");
       return;
     }
 
     setLoading(true);
     try {
-      // Call the Cloud Function instead of direct Firestore addDoc
       const result = await addSalonCallable({
         name: newSalonName,
         address: newSalonAddress,
         description: newSalonDescription,
-        ownerId: newSalonOwnerId,
-        // appId is NOT sent from client; it's derived securely on the backend
+        ownerEmail: newSalonOwnerEmail,
+        appId: clientAppId, // Pass appId to the Cloud Function
       });
-      toast.success(result.data.message);
+      toast.success((result.data as { message: string }).message || "Salon added successfully!");
       setNewSalonName('');
       setNewSalonAddress('');
       setNewSalonDescription('');
-      setNewSalonOwnerId('');
+      setNewSalonOwnerEmail('');
       fetchSalons(); // Refresh the list
     } catch (err: any) {
-      console.error("Error adding salon:", err);
-      toast.error(`Failed to add salon: ${err.message}`);
+      console.error("Error adding salon via Cloud Function:", err);
+      toast.error(err.message || `Failed to add salon.`);
     } finally {
       setLoading(false);
     }
@@ -114,7 +154,8 @@ const AdminSalonsPage = () => {
     setEditSalonName(salon.name);
     setEditSalonAddress(salon.address);
     setEditSalonDescription(salon.description);
-    setEditSalonOwnerId(salon.ownerId);
+    // When editing, ownerEmail will initially be empty. User can re-enter if changing.
+    setEditSalonOwnerEmail('');
   };
 
   /**
@@ -122,28 +163,39 @@ const AdminSalonsPage = () => {
    */
   const handleUpdateSalon = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingSalonId || !editSalonName || !editSalonAddress || !editSalonDescription || !editSalonOwnerId) {
-      toast.error("Please fill in all fields for editing.");
+    if (!editingSalonId || !editSalonName || !editSalonAddress || !editSalonDescription) {
+      toast.error("Please fill in all required fields for editing.");
       return;
     }
 
     setLoading(true);
     try {
-      // Call the Cloud Function instead of direct Firestore updateDoc
-      const result = await updateSalonCallable({
+      const updatePayload: {
+        id: string;
+        name: string;
+        address: string;
+        description: string;
+        ownerEmail?: string;
+        appId: string;
+      } = {
         id: editingSalonId,
         name: editSalonName,
         address: editSalonAddress,
         description: editSalonDescription,
-        ownerId: editSalonOwnerId,
-        // appId is NOT sent from client
-      });
-      toast.success(result.data.message);
-      setEditingSalonId(null); // Exit editing mode
+        appId: clientAppId,
+      };
+
+      if (editSalonOwnerEmail) {
+        updatePayload.ownerEmail = editSalonOwnerEmail;
+      }
+
+      const result = await updateSalonCallable(updatePayload);
+      toast.success((result.data as { message: string }).message || "Salon updated successfully!");
+      setEditingSalonId(null);
       fetchSalons(); // Refresh the list
     } catch (err: any) {
-      console.error("Error updating salon:", err);
-      toast.error(`Failed to update salon: ${err.message}`);
+      console.error("Error updating salon via Cloud Function:", err);
+      toast.error(err.message || `Failed to update salon.`);
     } finally {
       setLoading(false);
     }
@@ -156,13 +208,12 @@ const AdminSalonsPage = () => {
     if (window.confirm("Are you sure you want to delete this salon? This action cannot be undone.")) {
       setLoading(true);
       try {
-        // Call the Cloud Function instead of direct Firestore deleteDoc
-        const result = await deleteSalonCallable({ id: salonId }); // appId is NOT sent from client
-        toast.success(result.data.message);
+        const result = await deleteSalonCallable({ id: salonId, appId: clientAppId });
+        toast.success((result.data as { message: string }).message || "Salon deleted successfully!");
         fetchSalons(); // Refresh the list
       } catch (err: any) {
-        console.error("Error deleting salon:", err);
-        toast.error(`Failed to delete salon: ${err.message}`);
+        console.error("Error deleting salon via Cloud Function:", err);
+        toast.error(err.message || `Failed to delete salon.`);
       } finally {
         setLoading(false);
       }
@@ -236,18 +287,24 @@ const AdminSalonsPage = () => {
               ></textarea>
             </div>
             <div>
-              <label htmlFor="newSalonOwnerId" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Owner User ID (Firebase UID)
+              <label htmlFor="newSalonOwnerEmail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Owner Email
               </label>
               <input
-                type="text"
-                id="newSalonOwnerId"
-                value={newSalonOwnerId}
-                onChange={(e) => setNewSalonOwnerId(e.target.value)}
+                type="email" // Changed type to email
+                id="newSalonOwnerEmail"
+                value={newSalonOwnerEmail}
+                onChange={(e) => setNewSalonOwnerEmail(e.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 p-2"
-                placeholder="e.g., MFIh8kIzlQhoDnOcjshbjP3AQjF2"
+                placeholder="owner@example.com"
+                list="user-emails-datalist" // Added datalist attribute
                 required
               />
+              <datalist id="user-emails-datalist">
+                {availableUsers.map((user) => (
+                  <option key={user.uid} value={user.email} />
+                ))}
+              </datalist>
             </div>
             <button
               type="submit"
@@ -292,12 +349,12 @@ const AdminSalonsPage = () => {
                         required
                       ></textarea>
                       <input
-                        type="text"
-                        value={editSalonOwnerId}
-                        onChange={(e) => setEditSalonOwnerId(e.target.value)}
+                        type="email" // Changed type to email
+                        value={editSalonOwnerEmail}
+                        onChange={(e) => setEditSalonOwnerEmail(e.target.value)}
                         className="block w-full rounded-md border-gray-300 shadow-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 p-2"
-                        placeholder="Owner User ID"
-                        required
+                        placeholder="New Owner Email (optional)"
+                        list="user-emails-datalist" // Added datalist attribute
                       />
                       <div className="flex space-x-2 mt-2">
                         <button

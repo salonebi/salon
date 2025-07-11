@@ -1,11 +1,11 @@
 // functions/index.ts
 
-import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+// Import specific modules from firebase-functions/v2
+import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
+import { FieldValue } from 'firebase-admin/firestore'; // Explicitly import FieldValue
 
 // Initialize Firebase Admin SDK
-// This is automatically done in Cloud Functions environment,
-// but explicitly calling it ensures it's initialized for local testing or other environments.
 admin.initializeApp();
 
 const db = admin.firestore();
@@ -20,22 +20,22 @@ const getSalonsCollectionPath = (appId: string) => `artifacts/${appId}/public/da
  * Helper function to verify if the caller is an authenticated administrator.
  * Throws an HttpsError if not authorized.
  */
-async function assertAdmin(context: functions.https.CallableContext, appId: string) {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+async function assertAdmin(request: CallableRequest<any>, appId: string) {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
   }
 
-  const userId = context.auth.uid;
+  const userId = request.auth.uid;
   const userProfileRef = db.doc(getUserProfilePath(appId, userId));
   const userProfileSnap = await userProfileRef.get();
 
   if (!userProfileSnap.exists) {
-    throw new functions.https.HttpsError('permission-denied', 'User profile not found.');
+    throw new HttpsError('permission-denied', 'User profile not found.');
   }
 
   const userRole = userProfileSnap.data()?.role;
   if (userRole !== 'admin') {
-    throw new functions.https.HttpsError('permission-denied', 'Only administrators can perform this action.');
+    throw new HttpsError('permission-denied', 'Only administrators can perform this action.');
   }
 }
 
@@ -55,18 +55,17 @@ interface AddSalonData {
  * Requires admin privileges.
  * Assigns ownership via owner's email.
  *
- * @param {AddSalonData} data - The data for the new salon.
- * @param {functions.https.CallableContext} context - The context of the function call.
+ * @param {CallableRequest<AddSalonData>} request - The request object containing data and context.
  */
-export const addSalon = functions.https.onCall(async (data: AddSalonData, context: functions.https.CallableContext) => {
-  const { name, address, description, ownerEmail, appId } = data;
+export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) => {
+  const { name, address, description, ownerEmail, appId } = request.data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context, appId);
+  await assertAdmin(request, appId);
 
   // 2. Validate input data
   if (!name || !address || !description || !ownerEmail || !appId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing required salon fields or owner email.');
+    throw new HttpsError('invalid-argument', 'Missing required salon fields or owner email.');
   }
 
   let ownerId: string;
@@ -77,9 +76,9 @@ export const addSalon = functions.https.onCall(async (data: AddSalonData, contex
   } catch (error: any) {
     console.error("Error looking up owner by email:", ownerEmail, error);
     if (error.code === 'auth/user-not-found') {
-      throw new functions.https.HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
+      throw new HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
     }
-    throw new functions.https.HttpsError('internal', 'Failed to verify owner email.', error.message);
+    throw new HttpsError('internal', 'Failed to verify owner email.', error.message);
   }
 
   try {
@@ -89,8 +88,8 @@ export const addSalon = functions.https.onCall(async (data: AddSalonData, contex
       address,
       description,
       ownerId, // Store the UID
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Add timestamp
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(), // Use FieldValue from admin.firestore
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     // 5. Optional: Update the owner's global role to 'salon' if they are currently 'user'
@@ -106,7 +105,7 @@ export const addSalon = functions.https.onCall(async (data: AddSalonData, contex
       await ownerProfileRef.set({
         email: ownerEmail, // Store email for reference
         role: 'salon',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       }, { merge: true }); // Use merge to avoid overwriting if partial profile exists
       console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
     }
@@ -120,7 +119,7 @@ export const addSalon = functions.https.onCall(async (data: AddSalonData, contex
     return { id: newSalonRef.id, message: 'Salon added successfully!' };
   } catch (error: any) {
     console.error("Error adding salon in Cloud Function:", error);
-    throw new functions.https.HttpsError('internal', 'Failed to add salon.', error.message);
+    throw new HttpsError('internal', 'Failed to add salon.', error.message);
   }
 });
 
@@ -141,18 +140,17 @@ interface UpdateSalonData {
  * Requires admin privileges.
  * Can update owner via owner's email.
  *
- * @param {UpdateSalonData} data - The update data.
- * @param {functions.https.CallableContext} context - The context of the function call.
+ * @param {CallableRequest<UpdateSalonData>} request - The request object containing data and context.
  */
-export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, context: functions.https.CallableContext) => {
-  const { id, name, address, description, ownerEmail, appId } = data;
+export const updateSalon = onCall(async (request: CallableRequest<UpdateSalonData>) => {
+  const { id, name, address, description, ownerEmail, appId } = request.data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context, appId);
+  await assertAdmin(request, appId);
 
   // 2. Validate input data
   if (!id || !appId || (!name && !address && !description && !ownerEmail)) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing salon ID or update fields.');
+    throw new HttpsError('invalid-argument', 'Missing salon ID or update fields.');
   }
 
   let ownerId: string | undefined;
@@ -164,9 +162,9 @@ export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, 
     } catch (error: any) {
       console.error("Error looking up new owner by email:", ownerEmail, error);
       if (error.code === 'auth/user-not-found') {
-        throw new functions.https.HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
+        throw new HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
       }
-      throw new functions.https.HttpsError('internal', 'Failed to verify new owner email.', error.message);
+      throw new HttpsError('internal', 'Failed to verify new owner email.', error.message);
     }
   }
 
@@ -174,7 +172,7 @@ export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, 
     // 4. Update the salon document in Firestore
     const salonDocRef = db.doc(`${getSalonsCollectionPath(appId)}/${id}`);
     const updateData: { [key: string]: any } = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
     if (name) updateData.name = name;
     if (address) updateData.address = address;
@@ -192,7 +190,7 @@ export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, 
          await newOwnerProfileRef.set({
             email: ownerEmail,
             role: 'salon',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
          }, { merge: true });
          console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
       }
@@ -203,7 +201,7 @@ export const updateSalon = functions.https.onCall(async (data: UpdateSalonData, 
     return { message: 'Salon updated successfully!' };
   } catch (error: any) {
     console.error("Error updating salon in Cloud Function:", error);
-    throw new functions.https.HttpsError('internal', 'Failed to update salon.', error.message);
+    throw new HttpsError('internal', 'Failed to update salon.', error.message);
   }
 });
 
@@ -219,18 +217,17 @@ interface DeleteSalonData {
  * Callable Cloud Function to delete a salon.
  * Requires admin privileges.
  *
- * @param {DeleteSalonData} data - The data containing the salon ID.
- * @param {functions.https.CallableContext} context - The context of the function call.
+ * @param {CallableRequest<DeleteSalonData>} request - The request object containing data and context.
  */
-export const deleteSalon = functions.https.onCall(async (data: DeleteSalonData, context: functions.https.CallableContext) => {
-  const { id, appId } = data;
+export const deleteSalon = onCall(async (request: CallableRequest<DeleteSalonData>) => {
+  const { id, appId } = request.data;
 
   // 1. Authenticate and authorize the caller as an admin
-  await assertAdmin(context, appId);
+  await assertAdmin(request, appId);
 
   // 2. Validate input data
   if (!id || !appId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing salon ID.');
+    throw new HttpsError('invalid-argument', 'Missing salon ID.');
   }
 
   try {
@@ -245,6 +242,6 @@ export const deleteSalon = functions.https.onCall(async (data: DeleteSalonData, 
     return { message: 'Salon deleted successfully!' };
   } catch (error: any) {
     console.error("Error deleting salon in Cloud Function:", error);
-    throw new functions.https.HttpsError('internal', 'Failed to delete salon.', error.message);
+    throw new HttpsError('internal', 'Failed to delete salon.', error.message);
   }
 });
