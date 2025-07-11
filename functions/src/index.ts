@@ -5,6 +5,9 @@ import * as admin from 'firebase-admin';
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { FieldValue } from 'firebase-admin/firestore'; // Explicitly import FieldValue
 
+// Import interfaces from the shared types directory
+import { AddSalonData, UpdateSalonData, DeleteSalonData } from '../../src/types'; // Adjusted import path to shared types
+
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
@@ -40,17 +43,6 @@ async function assertAdmin(request: CallableRequest<any>, appId: string) {
 }
 
 /**
- * Interface for the data payload of the addSalon callable function.
- */
-interface AddSalonData {
-  name: string;
-  address: string;
-  description: string;
-  ownerEmail: string;
-  appId: string;
-}
-
-/**
  * Callable Cloud Function to add a new salon.
  * Requires admin privileges.
  * Assigns ownership via owner's email.
@@ -58,19 +50,24 @@ interface AddSalonData {
  * @param {CallableRequest<AddSalonData>} request - The request object containing data and context.
  */
 export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) => {
-  const { name, address, description, ownerEmail, appId } = request.data;
+  // Destructure data from the request payload
+  const { name, address, description, ownerEmail } = request.data;
+
+  // Get appId from the environment/context provided by Firebase App Hosting
+  // This is crucial for multi-tenant applications or when appId is dynamic.
+  const appId = process.env.FIREBASE_APP_ID || 'default-app-id';
 
   // 1. Authenticate and authorize the caller as an admin
   await assertAdmin(request, appId);
 
   // 2. Validate input data
-  if (!name || !address || !description || !ownerEmail || !appId) {
+  if (!name || !address || !description || !ownerEmail) {
     throw new HttpsError('invalid-argument', 'Missing required salon fields or owner email.');
   }
 
   let ownerId: string;
   try {
-    // 3. Look up owner's UID by email
+    // 3. Look up owner's UID by email using Firebase Auth Admin SDK
     const userRecord = await authAdmin.getUserByEmail(ownerEmail);
     ownerId = userRecord.uid;
   } catch (error: any) {
@@ -82,17 +79,18 @@ export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) =>
   }
 
   try {
-    // 4. Add the salon document to Firestore
+    // 4. Add the salon document to Firestore within the public data path
     const newSalonRef = await db.collection(getSalonsCollectionPath(appId)).add({
       name,
       address,
       description,
-      ownerId, // Store the UID
-      createdAt: FieldValue.serverTimestamp(), // Use FieldValue from admin.firestore
+      ownerId, // Store the resolved UID
+      createdAt: FieldValue.serverTimestamp(), // Use FieldValue for server-side timestamp
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     // 5. Optional: Update the owner's global role to 'salon' if they are currently 'user'
+    // This ensures that a user who becomes a salon owner has the correct role for dashboard access.
     const ownerProfileRef = db.doc(getUserProfilePath(appId, ownerId));
     const ownerProfileSnap = await ownerProfileRef.get();
 
@@ -100,21 +98,19 @@ export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) =>
       await ownerProfileRef.update({ role: 'salon' });
       console.log(`Updated owner ${ownerId} role to 'salon' for new salon ${newSalonRef.id}`);
     } else if (!ownerProfileSnap.exists) {
-      // If the owner profile doesn't exist, create a basic one with 'salon' role
-      // This handles cases where an admin assigns a salon to a user who hasn't logged in yet
+      // If the owner profile doesn't exist (e.g., admin assigned to a new user), create a basic one with 'salon' role
       await ownerProfileRef.set({
         email: ownerEmail, // Store email for reference
         role: 'salon',
         createdAt: FieldValue.serverTimestamp(),
-      }, { merge: true }); // Use merge to avoid overwriting if partial profile exists
+      }, { merge: true }); // Use merge to avoid overwriting if a partial profile exists
       console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
     }
 
     // 6. Optional: Send an invitation email to the ownerEmail
-    // This would involve integrating with an email service (e.g., SendGrid, Nodemailer)
+    // This would involve integrating with an email service (e.g., SendGrid, Nodemailer).
     // For example: await sendInvitationEmail(ownerEmail, name);
     console.log(`Invitation to manage salon ${name} could be sent to ${ownerEmail}.`);
-
 
     return { id: newSalonRef.id, message: 'Salon added successfully!' };
   } catch (error: any) {
@@ -124,18 +120,6 @@ export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) =>
 });
 
 /**
- * Interface for the data payload of the updateSalon callable function.
- */
-interface UpdateSalonData {
-  id: string;
-  name?: string;
-  address?: string;
-  description?: string;
-  ownerEmail?: string;
-  appId: string;
-}
-
-/**
  * Callable Cloud Function to update an existing salon.
  * Requires admin privileges.
  * Can update owner via owner's email.
@@ -143,13 +127,16 @@ interface UpdateSalonData {
  * @param {CallableRequest<UpdateSalonData>} request - The request object containing data and context.
  */
 export const updateSalon = onCall(async (request: CallableRequest<UpdateSalonData>) => {
-  const { id, name, address, description, ownerEmail, appId } = request.data;
+  const { id, name, address, description, ownerEmail } = request.data;
+
+  // Get appId from the environment/context provided by Firebase App Hosting
+  const appId = process.env.FIREBASE_APP_ID || 'default-app-id';
 
   // 1. Authenticate and authorize the caller as an admin
   await assertAdmin(request, appId);
 
   // 2. Validate input data
-  if (!id || !appId || (!name && !address && !description && !ownerEmail)) {
+  if (!id || (!name && !address && !description && !ownerEmail)) {
     throw new HttpsError('invalid-argument', 'Missing salon ID or update fields.');
   }
 
@@ -206,27 +193,22 @@ export const updateSalon = onCall(async (request: CallableRequest<UpdateSalonDat
 });
 
 /**
- * Interface for the data payload of the deleteSalon callable function.
- */
-interface DeleteSalonData {
-  id: string;
-  appId: string;
-}
-
-/**
  * Callable Cloud Function to delete a salon.
  * Requires admin privileges.
  *
  * @param {CallableRequest<DeleteSalonData>} request - The request object containing data and context.
  */
 export const deleteSalon = onCall(async (request: CallableRequest<DeleteSalonData>) => {
-  const { id, appId } = request.data;
+  const { id } = request.data;
+
+  // Get appId from the environment/context provided by Firebase App Hosting
+  const appId = process.env.FIREBASE_APP_ID || 'default-app-id';
 
   // 1. Authenticate and authorize the caller as an admin
   await assertAdmin(request, appId);
 
   // 2. Validate input data
-  if (!id || !appId) {
+  if (!id) {
     throw new HttpsError('invalid-argument', 'Missing salon ID.');
   }
 

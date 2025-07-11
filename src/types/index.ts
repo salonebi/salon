@@ -83,31 +83,34 @@ export interface CallableResult {
   id?: string; // Optional, as addSalon returns an ID, but update/delete might not
 }
 
-// --- New interfaces for Callable Function input data ---
+// --- New interfaces for Callable Function input data (client-side view) ---
 
 /**
  * Defines the input data for the 'addSalon' callable function.
+ * This is what the client sends to the Cloud Function.
  */
 export interface AddSalonData {
   name: string;
   address: string;
   description: string;
-  ownerId: string;
+  ownerEmail: string; // Client sends owner's email
 }
 
 /**
  * Defines the input data for the 'updateSalon' callable function.
+ * This is what the client sends to the Cloud Function.
  */
 export interface UpdateSalonData {
   id: string;
   name?: string;
   address?: string;
   description?: string;
-  ownerId?: string;
+  ownerEmail?: string; // Client sends owner's email (optional for update)
 }
 
 /**
  * Defines the input data for the 'deleteSalon' callable function.
+ * This is what the client sends to the Cloud Function.
  */
 export interface DeleteSalonData {
   id: string;

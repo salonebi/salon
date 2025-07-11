@@ -8,6 +8,7 @@ import { db, app } from '../../../../lib/firebase'; // Adjust path, ensure 'app'
 import { getFunctions, httpsCallable } from 'firebase/functions'; // Import for Cloud Functions
 import { toast } from 'sonner';
 import { Salon } from '../../../../types'; // Import the Salon interface
+import { AddSalonData, UpdateSalonData, DeleteSalonData } from '../../../../types'; // Explicitly import callable data types
 
 // Client-side appId for direct Firestore reads (if not via callable functions)
 // Corrected to use NEXT_PUBLIC_FIREBASE_APP_ID
@@ -16,10 +17,10 @@ const clientAppId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 // Initialize Firebase Functions client
 const functions = getFunctions(app);
 
-// Define callable functions
-const addSalonCallable = httpsCallable<any, { id: string; message: string }>(functions, 'addSalon');
-const updateSalonCallable = httpsCallable<any, { message: string }>(functions, 'updateSalon');
-const deleteSalonCallable = httpsCallable<any, { message: string }>(functions, 'deleteSalon');
+// Define callable functions with their specific input and output types
+const addSalonCallable = httpsCallable<AddSalonData, { id: string; message: string }>(functions, 'addSalon');
+const updateSalonCallable = httpsCallable<UpdateSalonData, { message: string }>(functions, 'updateSalon');
+const deleteSalonCallable = httpsCallable<DeleteSalonData, { message: string }>(functions, 'deleteSalon');
 
 /**
  * Interface for a basic user profile needed for owner suggestions.
@@ -130,7 +131,7 @@ const AdminSalonsPage = () => {
         address: newSalonAddress,
         description: newSalonDescription,
         ownerEmail: newSalonOwnerEmail,
-        appId: clientAppId, // Pass appId to the Cloud Function
+        // appId is no longer sent from client as it's resolved in the function context
       });
       toast.success((result.data as { message: string }).message || "Salon added successfully!");
       setNewSalonName('');
@@ -170,19 +171,12 @@ const AdminSalonsPage = () => {
 
     setLoading(true);
     try {
-      const updatePayload: {
-        id: string;
-        name: string;
-        address: string;
-        description: string;
-        ownerEmail?: string;
-        appId: string;
-      } = {
+      const updatePayload: UpdateSalonData = { // Use the imported type
         id: editingSalonId,
         name: editSalonName,
         address: editSalonAddress,
         description: editSalonDescription,
-        appId: clientAppId,
+        // appId is no longer sent from client
       };
 
       if (editSalonOwnerEmail) {
@@ -205,19 +199,27 @@ const AdminSalonsPage = () => {
    * Handles deleting a salon via Cloud Function.
    */
   const handleDeleteSalon = async (salonId: string) => {
-    if (window.confirm("Are you sure you want to delete this salon? This action cannot be undone.")) {
-      setLoading(true);
-      try {
-        const result = await deleteSalonCallable({ id: salonId, appId: clientAppId });
-        toast.success((result.data as { message: string }).message || "Salon deleted successfully!");
-        fetchSalons(); // Refresh the list
-      } catch (err: any) {
-        console.error("Error deleting salon via Cloud Function:", err);
-        toast.error(err.message || `Failed to delete salon.`);
-      } finally {
-        setLoading(false);
-      }
-    }
+    // Replaced window.confirm with a custom modal/toast for better UX in an iframe environment
+    toast.warning("Are you sure you want to delete this salon? This action cannot be undone.", {
+      action: {
+        label: "Confirm Delete",
+        onClick: async () => {
+          setLoading(true);
+          try {
+            const result = await deleteSalonCallable({ id: salonId }); // appId no longer sent
+            toast.success((result.data as { message: string }).message || "Salon deleted successfully!");
+            fetchSalons(); // Refresh the list
+          } catch (err: any) {
+            console.error("Error deleting salon via Cloud Function:", err);
+            toast.error(err.message || `Failed to delete salon.`);
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+      duration: 5000, // Give user time to confirm
+      dismissible: true,
+    });
   };
 
   if (loading) {
@@ -288,7 +290,7 @@ const AdminSalonsPage = () => {
             </div>
             <div>
               <label htmlFor="newSalonOwnerEmail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Owner Email bbb
+                Owner Email
               </label>
               <input
                 type="email" // Changed type to email
