@@ -288,7 +288,7 @@ const AdminSalonsPage = () => {
             </div>
             <div>
               <label htmlFor="newSalonOwnerEmail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Owner Email
+                Owner Email bbb
               </label>
               <input
                 type="email" // Changed type to email
