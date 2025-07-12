@@ -4,17 +4,14 @@
 
 import { useState } from 'react';
 import { getAuth, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // Import Firestore functions
-import { auth, db } from '../lib/firebase'; // Assuming auth and db are exported from firebase config
-import { AuthOperations } from '../types'; // Adjusted path
+import { auth } from '../lib/firebase';
+import { AuthOperations, UserProfile } from '../types'; // FIX: Import UserProfile instead of UserProfileCallableResult
+import { AppRoutes } from '@/routes/appRoutes';
 import { toast } from 'sonner';
-import { useRouter } from 'next/navigation'; // Import useRouter for redirection
-import { AppRoutes } from '@/routes/appRoutes'; // Import AppRoutes for consistent routing
+
+import { ensureUserProfile } from '../lib/authService';
 
 const googleProvider = new GoogleAuthProvider();
-
-// Correctly define appId using NEXT_PUBLIC_FIREBASE_APP_ID from environment variables
-const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 
 /**
  * Custom hook for handling Google Sign-In and Sign-Out operations.
@@ -23,10 +20,9 @@ const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 export const useAuthOperations = (): AuthOperations => {
     const [loadingAuth, setLoadingAuth] = useState<boolean>(false);
     const [authError, setAuthError] = useState<string | null>(null);
-    const router = useRouter(); // Initialize the router
+    const router = require('next/navigation').useRouter();
 
     // Google Sign-In
-    // This function now handles role-based redirection internally
     const googleSignIn = async (): Promise<void> => {
         setLoadingAuth(true);
         setAuthError(null);
@@ -35,44 +31,29 @@ export const useAuthOperations = (): AuthOperations => {
             const user = result.user;
 
             if (user) {
-                // Fetch user's profile to determine their role
-                const userProfileRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile/data`);
-                const userProfileSnap = await getDoc(userProfileRef);
+                // FIX: Type 'profile' as UserProfile, not UserProfileCallableResult
+                const profile: UserProfile = await ensureUserProfile();
 
                 let redirectPath = AppRoutes.USER_DASHBOARD; // Default redirect path
 
-                if (userProfileSnap.exists()) {
-                    const userData = userProfileSnap.data();
-                    const userRole = userData.role;
-
-                    // --- DEBUGGING LINE ---
-                    console.log("User role fetched from Firestore:", userRole);
-                    // --- END DEBUGGING LINE ---
-
-                    switch (userRole) {
-                        case 'admin':
-                            redirectPath = AppRoutes.ADMIN_DASHBOARD;
-                            break;
-                        case 'salon': // Re-added case for 'salon' role
-                            redirectPath = AppRoutes.SALON_DASHBOARD;
-                            break;
-                        case 'user': // Explicitly handle 'user' role
-                        default: // Fallback for any other unexpected role or if role is not set
-                            redirectPath = AppRoutes.USER_DASHBOARD;
-                            break;
-                    }
-                } else {
-                    // If profile doesn't exist (e.g., first-time sign-in),
-                    // the AuthContext should handle creating a default 'user' profile.
-                    // We'll still redirect to the user dashboard as a fallback.
-                    console.warn("User profile not found after sign-in. Defaulting to user dashboard.");
-                    redirectPath = AppRoutes.USER_DASHBOARD; // Ensure it defaults to user dashboard
+                // Determine redirection based on the role returned by the Cloud Function
+                switch (profile.role) {
+                    case 'admin':
+                        redirectPath = AppRoutes.ADMIN_DASHBOARD;
+                        break;
+                    case 'salon':
+                        redirectPath = AppRoutes.SALON_DASHBOARD;
+                        break;
+                    case 'user':
+                    default:
+                        redirectPath = AppRoutes.USER_DASHBOARD;
+                        break;
                 }
 
                 toast.success("Signed in with Google successfully!");
                 router.push(redirectPath);
+
             } else {
-                // This case should ideally not happen with signInWithPopup
                 throw new Error("User not found after sign-in popup.");
             }
         } catch (error: any) {
@@ -92,15 +73,14 @@ export const useAuthOperations = (): AuthOperations => {
         }
     };
 
-    // Sign Out
+    // Sign Out (remains unchanged)
     const signOutUser = async (): Promise<void> => {
         setLoadingAuth(true);
         setAuthError(null);
         try {
             await signOut(auth);
             toast.info("You have been signed out.");
-            // After sign out, redirect to home or login page
-            router.push(AppRoutes.HOME); 
+            router.push(AppRoutes.HOME);
         } catch (error: any) {
             console.error("Error during sign out:", error);
             const errorMessage = `Sign out failed: ${error.message}`;

@@ -2,7 +2,7 @@
 
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { db, authAdmin, FieldValueAdmin, assertAdmin, getUserProfilePath, getSalonsCollectionPath } from '../utils/firebaseAdmin';
-import { UpdateSalonData } from '../../../src/types'; // Adjusted import path to shared types
+import { UpdateSalonData } from '../types/index'; // Adjusted import path to shared types
 
 /**
  * Callable Cloud Function to update an existing salon.

@@ -2,7 +2,7 @@
 
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { db, assertAdmin } from '../utils/firebaseAdmin'; // Only import what's needed
-import { UserProfile } from '../../../src/types'; // Import UserProfile type
+import { UserProfile } from '../types/index'; // Import UserProfile type
 
 /**
  * Callable Cloud Function to search for user profiles by email.

@@ -2,8 +2,7 @@
 
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { db, authAdmin, FieldValueAdmin, assertAdmin, getUserProfilePath, getSalonsCollectionPath } from '../utils/firebaseAdmin';
-import { AddSalonData } from '../../../src/types'; // Adjusted import path to shared types
-
+import { AddSalonData } from '../types';
 /**
  * Callable Cloud Function to add a new salon.
  * Requires admin privileges.

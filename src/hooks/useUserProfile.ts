@@ -1,5 +1,7 @@
+// src/hooks/useUserProfile.ts
+
 import { useState, useEffect } from 'react';
-import { getUserProfile } from '../lib/authService';
+import { getUserProfile } from '../lib/authService'; // This function is now updated internally
 import { UserProfile, UserRole } from '../types';
 import { toast } from 'sonner';
 
@@ -19,7 +21,7 @@ export const useUserProfile = (userId: string | null, expectedRole: UserRole) =>
             setProfileError(null);
 
             try {
-                const profile = await getUserProfile(userId);
+                const profile = await getUserProfile(userId); // This now calls the Cloud Function
 
                 if (!profile) {
                     const errorMessage = "Your user profile could not be found.";

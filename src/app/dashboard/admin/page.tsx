@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
-import { getAllUserProfiles } from '../../../lib/authService';
+import { getAllUserProfiles } from '../../../lib/authService'; // This function is now updated internally
 import { UserProfile } from '../../../types';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -18,19 +18,17 @@ const AdminDashboardPage: React.FC = () => {
     const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
 
     useEffect(() => {
-        // Redirect if the user is not an admin.
         if (!authLoading && userRole !== 'admin') {
             toast.error("Access Denied: You do not have permission to view this page.");
-            router.push('/dashboard'); // Redirect to a safe page
+            router.push('/dashboard');
             return;
         }
 
-        // Fetch all users if the user is an admin.
         if (userRole === 'admin') {
             const fetchUsers = async () => {
                 setLoadingUsers(true);
                 try {
-                    const userProfiles = await getAllUserProfiles();
+                    const userProfiles = await getAllUserProfiles(); // This now calls the Cloud Function
                     setUsers(userProfiles);
                 } catch (error) {
                     console.error("Failed to fetch users:", error);
@@ -44,7 +42,6 @@ const AdminDashboardPage: React.FC = () => {
         }
     }, [userRole, authLoading, router]);
 
-    // Show a loading state while checking auth or fetching users.
     if (authLoading || loadingUsers) {
         return (
             <div className="flex items-center justify-center p-8">
@@ -53,7 +50,6 @@ const AdminDashboardPage: React.FC = () => {
         );
     }
 
-    // This message is shown if the useEffect hook has initiated a redirect.
     if (userRole !== 'admin') {
         return (
              <div className="flex items-center justify-center p-8">
@@ -65,7 +61,7 @@ const AdminDashboardPage: React.FC = () => {
     return (
         <div className="p-4 sm:p-6">
             <h1 className="text-3xl font-bold text-gray-800 mb-6">Admin Dashboard: All Users</h1>
-            
+
             <div className="bg-white shadow-md rounded-lg overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">

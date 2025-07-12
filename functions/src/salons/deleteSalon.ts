@@ -2,7 +2,7 @@
 
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { db, assertAdmin, getSalonsCollectionPath } from '../utils/firebaseAdmin';
-import { DeleteSalonData } from '../../../src/types'; // Adjusted import path to shared types
+import { DeleteSalonData } from '../types/index'; // Adjusted import path to shared types
 
 /**
  * Callable Cloud Function to delete a salon.
