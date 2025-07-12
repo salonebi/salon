@@ -7,11 +7,10 @@ import { collection, getDocs } from 'firebase/firestore'; // Keep getDocs for in
 import { db, app } from '../../../../lib/firebase'; // Adjust path, ensure 'app' is exported from firebase.ts
 import { getFunctions, httpsCallable } from 'firebase/functions'; // Import for Cloud Functions
 import { toast } from 'sonner';
-import { Salon } from '../../../../types'; // Import the Salon interface
+import { Salon, UserProfile } from '../../../../types'; // Import the Salon and UserProfile interface
 import { AddSalonData, UpdateSalonData, DeleteSalonData } from '../../../../types'; // Explicitly import callable data types
 
 // Client-side appId for direct Firestore reads (if not via callable functions)
-// Corrected to use NEXT_PUBLIC_FIREBASE_APP_ID
 const clientAppId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
 
 // Initialize Firebase Functions client
@@ -21,24 +20,16 @@ const functions = getFunctions(app);
 const addSalonCallable = httpsCallable<AddSalonData, { id: string; message: string }>(functions, 'addSalon');
 const updateSalonCallable = httpsCallable<UpdateSalonData, { message: string }>(functions, 'updateSalon');
 const deleteSalonCallable = httpsCallable<DeleteSalonData, { message: string }>(functions, 'deleteSalon');
-
-/**
- * Interface for a basic user profile needed for owner suggestions.
- */
-interface UserForSuggestion {
-  uid: string;
-  email: string;
-  // You might want to include name as well if you want to display it
-}
+const searchUsersCallable = httpsCallable<{ searchTerm: string }, Partial<UserProfile>[]>(functions, 'searchUsersByEmail'); // NEW callable function for user search
 
 /**
  * AdminSalonsPage component.
  * Allows administrators to manage (create, list, edit, delete) salon records via Cloud Functions.
- * Now includes a dropdown for suggesting owner emails.
+ * Now includes a dropdown for suggesting owner emails based on dynamic search.
  */
 const AdminSalonsPage = () => {
   const [salons, setSalons] = useState<Salon[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<UserForSuggestion[]>([]); // New state for user suggestions
+  const [availableUsers, setAvailableUsers] = useState<Partial<UserProfile>[]>([]); // State for user suggestions, updated type
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +45,9 @@ const AdminSalonsPage = () => {
   const [editSalonAddress, setEditSalonAddress] = useState<string>('');
   const [editSalonDescription, setEditSalonDescription] = useState<string>('');
   const [editSalonOwnerEmail, setEditSalonOwnerEmail] = useState<string>(''); // Owner Email for editing
+
+  // State for debouncing user search
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Fetch Salons (memoized with useCallback)
   const fetchSalons = useCallback(async () => {
@@ -79,40 +73,57 @@ const AdminSalonsPage = () => {
     }
   }, []);
 
-  // Fetch Users for Suggestions (new useCallback)
-  const fetchUsersForSuggestions = useCallback(async () => {
+  // Handle User Search for Suggestions (new useCallback for dynamic search)
+  const handleSearchUsersForSuggestions = useCallback(async (searchTerm: string) => {
+    if (searchTerm.length < 2) { // Only search if at least 2 characters
+      setAvailableUsers([]);
+      return;
+    }
     try {
-      // Assuming admin has read access to other user profiles based on security rules
-      const usersCollectionRef = collection(db, `artifacts/${clientAppId}/users`);
-      const querySnapshot = await getDocs(usersCollectionRef); // You might want to query subcollection '/profile/data' directly
-      const fetchedUsers: UserForSuggestion[] = [];
-      
-      // Iterate through user documents to find their profile/data subcollection
-      for (const userDoc of querySnapshot.docs) {
-          const profileRef = collection(db, `artifacts/${clientAppId}/users/${userDoc.id}/profile`);
-          const profileSnapshot = await getDocs(profileRef); // This fetches all docs in 'profile'
-          
-          profileSnapshot.forEach(profileDoc => {
-              if (profileDoc.id === 'data') { // Assuming the profile data is in a doc named 'data'
-                  const userData = profileDoc.data();
-                  if (userData.email && userDoc.id) { // Ensure email and uid exist
-                      fetchedUsers.push({ uid: userDoc.id, email: userData.email });
-                  }
-              }
-          });
-      }
-      
-      setAvailableUsers(fetchedUsers);
+      const result = await searchUsersCallable({ searchTerm });
+      setAvailableUsers(result.data || []);
     } catch (err: any) {
-      console.error("Error fetching users for suggestions:", err);
-      toast.error(`Failed to load user suggestions: ${err.message}`);
+      console.error("Error searching users for suggestions:", err);
+      toast.error(`Failed to search user suggestions: ${err.message}`);
     }
   }, []);
 
+
   useEffect(() => {
     fetchSalons();
-    fetchUsersForSuggestions(); // Fetch users when component mounts
-  }, [fetchSalons, fetchUsersForSuggestions]); // Depend on memoized callbacks
+    // Removed initial fetchUsersForSuggestions as it's now dynamic
+  }, [fetchSalons]);
+
+  // Handle change for new salon owner email input with debouncing
+  const handleNewOwnerEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setNewSalonOwnerEmail(value);
+
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      handleSearchUsersForSuggestions(value);
+    }, 300); // Debounce time
+    setSearchTimeout(timeout);
+  };
+
+  // Handle change for edit salon owner email input with debouncing
+  const handleEditOwnerEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setEditSalonOwnerEmail(value);
+
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      handleSearchUsersForSuggestions(value);
+    }, 300); // Debounce time
+    setSearchTimeout(timeout);
+  };
+
 
   /**
    * Handles adding a new salon via Cloud Function.
@@ -131,13 +142,13 @@ const AdminSalonsPage = () => {
         address: newSalonAddress,
         description: newSalonDescription,
         ownerEmail: newSalonOwnerEmail,
-        // appId is no longer sent from client as it's resolved in the function context
       });
       toast.success((result.data as { message: string }).message || "Salon added successfully!");
       setNewSalonName('');
       setNewSalonAddress('');
       setNewSalonDescription('');
       setNewSalonOwnerEmail('');
+      setAvailableUsers([]); // Clear suggestions after adding
       fetchSalons(); // Refresh the list
     } catch (err: any) {
       console.error("Error adding salon via Cloud Function:", err);
@@ -155,8 +166,8 @@ const AdminSalonsPage = () => {
     setEditSalonName(salon.name);
     setEditSalonAddress(salon.address);
     setEditSalonDescription(salon.description);
-    // When editing, ownerEmail will initially be empty. User can re-enter if changing.
-    setEditSalonOwnerEmail('');
+    setEditSalonOwnerEmail(''); // Clear previous email suggestion when starting edit
+    setAvailableUsers([]); // Clear suggestions for the edit form initially
   };
 
   /**
@@ -176,7 +187,6 @@ const AdminSalonsPage = () => {
         name: editSalonName,
         address: editSalonAddress,
         description: editSalonDescription,
-        // appId is no longer sent from client
       };
 
       if (editSalonOwnerEmail) {
@@ -186,6 +196,7 @@ const AdminSalonsPage = () => {
       const result = await updateSalonCallable(updatePayload);
       toast.success((result.data as { message: string }).message || "Salon updated successfully!");
       setEditingSalonId(null);
+      setAvailableUsers([]); // Clear suggestions after updating
       fetchSalons(); // Refresh the list
     } catch (err: any) {
       console.error("Error updating salon via Cloud Function:", err);
@@ -199,14 +210,13 @@ const AdminSalonsPage = () => {
    * Handles deleting a salon via Cloud Function.
    */
   const handleDeleteSalon = async (salonId: string) => {
-    // Replaced window.confirm with a custom modal/toast for better UX in an iframe environment
     toast.warning("Are you sure you want to delete this salon? This action cannot be undone.", {
       action: {
         label: "Confirm Delete",
         onClick: async () => {
           setLoading(true);
           try {
-            const result = await deleteSalonCallable({ id: salonId }); // appId no longer sent
+            const result = await deleteSalonCallable({ id: salonId });
             toast.success((result.data as { message: string }).message || "Salon deleted successfully!");
             fetchSalons(); // Refresh the list
           } catch (err: any) {
@@ -217,7 +227,7 @@ const AdminSalonsPage = () => {
           }
         },
       },
-      duration: 5000, // Give user time to confirm
+      duration: 5000,
       dismissible: true,
     });
   };
@@ -293,10 +303,10 @@ const AdminSalonsPage = () => {
                 Owner Email
               </label>
               <input
-                type="email" // Changed type to email
+                type="email"
                 id="newSalonOwnerEmail"
                 value={newSalonOwnerEmail}
-                onChange={(e) => setNewSalonOwnerEmail(e.target.value)}
+                onChange={handleNewOwnerEmailChange} // Changed handler
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 p-2"
                 placeholder="owner@example.com"
                 list="user-emails-datalist" // Added datalist attribute
@@ -304,7 +314,7 @@ const AdminSalonsPage = () => {
               />
               <datalist id="user-emails-datalist">
                 {availableUsers.map((user) => (
-                  <option key={user.uid} value={user.email} />
+                  user.email && user.uid && <option key={user.uid} value={user.email}>{user.displayName ? `${user.displayName} (${user.email})` : user.email}</option>
                 ))}
               </datalist>
             </div>
@@ -351,9 +361,9 @@ const AdminSalonsPage = () => {
                         required
                       ></textarea>
                       <input
-                        type="email" // Changed type to email
+                        type="email"
                         value={editSalonOwnerEmail}
-                        onChange={(e) => setEditSalonOwnerEmail(e.target.value)}
+                        onChange={handleEditOwnerEmailChange} // Changed handler
                         className="block w-full rounded-md border-gray-300 shadow-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 p-2"
                         placeholder="New Owner Email (optional)"
                         list="user-emails-datalist" // Added datalist attribute
@@ -368,7 +378,7 @@ const AdminSalonsPage = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setEditingSalonId(null)}
+                          onClick={() => { setEditingSalonId(null); setAvailableUsers([]); }} // Clear suggestions on cancel
                           className="px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-sm transition duration-300"
                         >
                           Cancel
