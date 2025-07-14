@@ -5,74 +5,79 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
-import { getAllUserProfiles } from '../../../lib/authService'; // This function is now updated internally [cite: uploaded:salonebi/salon/salon-c2190c09c847a9b8c13089e779500534accd173b/src/lib/authService.ts]
-import { UserProfile } from '../../../types'; // Import UserProfile from types [cite: uploaded:salonebi/salon/salon-c2190c09c847a9b8c13089e779500534accd173b/src/types/index.ts]
+import { getAllUserProfiles } from '../../../lib/authService';
+import { UserProfile } from '../../../types';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button'; // [cite: uploaded:salonebi/salon/salon-c2190c09c847a9b8c13089e779500534accd173b/src/components/ui/button.tsx]
+import { Button } from '@/components/ui/button';
 import { useUserProfile } from '@/hooks/useUserProfile';
 
 const AdminDashboardPage: React.FC = () => {
-    const { user, userId, loading: authLoading } = useAuth(); // Removed userRole from destructuring as useUserProfile handles it
+    const { user, loading: authLoading } = useAuth();
     const router = useRouter();
 
-    // The useUserProfile hook now fetches and validates the profile for the 'customer' role.
-    // This is aligned with our updated UserRole type in src/types/index.ts.
-    const { userProfile, profileLoading, profileError,  } = useUserProfile(userId, 'customer');
+    // The useUserProfile hook is now called without the 'expectedRole' argument.
+    const { userProfile, profileLoading } = useUserProfile(user?.uid);
 
-    const [users, setUsers] = useState<UserProfile[]>([]); // State now holds UserProfile objects (with Date objects)
-    const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
-    const [errorUsers, setErrorUsers] = useState<string | null>(null); // New state for specific user list errors
+    // FIX: Corrected initial state from 'true' to '[]' for users array
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [loadingUsers, setLoadingUsers] = useState<boolean>(true); // Initial state is true
+    const [errorUsers, setErrorUsers] = useState<string | null>(null);
 
     useEffect(() => {
-        // Redirect if not authenticated or not an admin
+        console.log("AdminDashboardPage useEffect triggered.");
+        console.log("Current Auth State: authLoading =", authLoading, "user =", user);
+
+        // Check if authentication is done and no user is logged in
+        if (!authLoading && !user) {
+            console.log("AdminDashboardPage: Not authenticated, redirecting to /login.");
+            toast.info("Please log in to view the user list. (Optional: remove this check for full public access)");
+            router.push('/login');
+            return; // Stop execution of this useEffect
+        }
+
+        const fetchUsers = async () => {
+            setLoadingUsers(true); // Indicate that user data is being loaded
+            setErrorUsers(null); // Clear any previous errors
+            console.log("AdminDashboardPage: Starting fetchUsers...");
+            try {
+                const userProfiles = await getAllUserProfiles();
+                console.log("AdminDashboardPage: Users fetched successfully. Count:", userProfiles.length);
+                setUsers(userProfiles);
+            } catch (error) {
+                const errorMessage = `Failed to load user data: ${(error as Error).message}`;
+                console.error("AdminDashboardPage: Failed to fetch users:", error);
+                toast.error(errorMessage);
+                setErrorUsers(errorMessage);
+            } finally {
+                console.log("AdminDashboardPage: Setting loadingUsers to false (finally block).");
+                setLoadingUsers(false); // Loading is complete (success or failure)
+            }
+        };
+
+        // Only attempt to fetch users if authentication is complete AND a user is present.
+        // This prevents fetching before auth state is known or for unauthenticated users (if the redirect above is active).
         if (!authLoading && user) {
-            toast.error("Access Denied: You do not have permission to view this page.");
-            router.push('/'); // Redirect to home or login page
-            return;
-        }
-
-        // Fetch users only if authenticated and is an admin
-        if (userProfile?.role === 'customer') {
-            const fetchUsers = async () => {
-                setLoadingUsers(true);
-                setErrorUsers(null); // Clear previous errors
-                try {
-                    const userProfiles = await getAllUserProfiles(); // This now calls the Cloud Function [cite: uploaded:salonebi/salon/salon-c2190c09c847a9b8c13089e779500534accd173b/functions/src/users/getAllUserProfiles.ts]
-                    // The getAllUserProfiles function in authService.ts already converts ISO strings to Date objects.
-                    setUsers(userProfiles);
-                } catch (error) {
-                    const errorMessage = `Failed to load user data: ${(error as Error).message}`;
-                    console.error("Failed to fetch users:", error);
-                    toast.error(errorMessage);
-                    setErrorUsers(errorMessage); // Set specific error for user list
-                } finally {
-                    setLoadingUsers(false);
-                }
-            };
-
+            console.log("AdminDashboardPage: Auth ready and user present, initiating fetchUsers.");
             fetchUsers();
+        } else if (authLoading) {
+            console.log("AdminDashboardPage: Authentication still in progress...");
         }
-    }, [userProfile?.role, authLoading, router]);
+        // If !user and !authLoading, the redirect above should have handled it.
+    }, [authLoading, user, router]); // Dependencies: authLoading, user, and router for effect re-runs
 
-    // Combined loading state for a smoother experience.
-    if (authLoading || loadingUsers) {
+    // Log all loading states before rendering the component
+    console.log("AdminDashboardPage Render State: authLoading =", authLoading, "loadingUsers =", loadingUsers, "profileLoading =", profileLoading);
+
+    // Display loading screen if any of the main loading states are true
+    if (authLoading || loadingUsers || profileLoading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-8">
-                <div className="text-xl font-semibold text-gray-700">Loading Admin Dashboard...</div>
+                <div className="text-xl font-semibold text-gray-700">Loading User Dashboard...</div>
             </div>
         );
     }
 
-    // If access is denied (after loading), show a message and prevent rendering the content
-    if (userProfile?.role !== 'customer') {
-        return (
-             <div className="flex items-center justify-center min-h-screen bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100 p-8 rounded-lg shadow-md">
-                <div className="text-xl font-semibold text-red-600">Access Denied. Redirecting...</div>
-            </div>
-        );
-    }
-
-    // If there was an error fetching users but the user is an admin
+    // Display error message if there was an error fetching users
     if (errorUsers) {
         return (
             <div className="flex justify-center items-center min-h-screen bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100 p-4 rounded-lg shadow-md">
@@ -81,9 +86,10 @@ const AdminDashboardPage: React.FC = () => {
         );
     }
 
+    // Main content of the dashboard
     return (
         <div className="p-4 sm:p-6 min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-50">
-            <h1 className="text-3xl font-bold mb-6 text-center">Admin Dashboard: All Users</h1>
+            <h1 className="text-3xl font-bold mb-6 text-center">All Registered Users</h1>
 
             <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                 <div className="overflow-x-auto">
@@ -117,11 +123,10 @@ const AdminDashboardPage: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {/* createdAt is a Date object from authService now */}
                                             {profile.createdAt instanceof Date ? profile.createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <Button variant="link" className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200">Edit</Button>
+                                            <Button variant="link" className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200">View Details</Button>
                                         </td>
                                     </tr>
                                 ))

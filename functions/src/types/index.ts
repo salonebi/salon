@@ -256,14 +256,13 @@ export interface AddSalonData {
     longitude: number;
   };
   description: string;
-  phoneNumber: string;
-  email?: string;
-  website?: string;
-  imageUrls?: string[];
-  openingHours: Salon['openingHours']; // Use the Salon interface's type
-  services: Salon['services']; // Use the Salon interface's type
-  // ownerEmail is not needed here if ownerId is passed or inferred from auth
-  // Will be `ownerIds: [request.auth.uid]` on the backend
+  phoneNumber?: string; // Added as optional in Salon, but was missing here.
+  email?: string; // Added as optional in Salon, but was missing here.
+  website?: string; // Added as optional in Salon, but was missing here.
+  imageUrls?: string[]; // Added as optional in Salon, but was missing here.
+  openingHours?: Salon['openingHours']; // Made optional as per Salon, but was missing here.
+  services?: Salon['services']; // Made optional as per Salon, but was missing here.
+  ownerEmail: string; // Added ownerEmail for salon creation
 }
 
 /**
@@ -271,6 +270,7 @@ export interface AddSalonData {
  */
 export interface UpdateSalonData extends Partial<Omit<Salon, 'id' | 'createdAt' | 'lastUpdated' | 'ownerIds' | 'ratings'>> {
   id: string; // Required for update
+  ownerEmail?: string; // Added ownerEmail for salon update
   // ownerIds should be updated via specific admin/owner functions, not generic updateSalon
   // ratings are updated by review functions
 }

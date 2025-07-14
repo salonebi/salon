@@ -40,21 +40,21 @@ export const useAuthOperations = (): AuthOperations => {
                 // Call the Cloud Function to ensure/update the user profile in Firestore
                 const profile = (await ensureUserProfileCallable()).data; // .data contains the result
 
-                let redirectPath = AppRoutes.USER_DASHBOARD; // Default redirect path
+                let redirectPath = AppRoutes.ADMIN_DASHBOARD; // Default redirect path
 
                 // Determine redirection based on the role returned by the Cloud Function
-                switch (profile.role) {
-                    case 'admin':
-                        redirectPath = AppRoutes.ADMIN_DASHBOARD; // Redirect to admin dashboard
-                        break;
-                    case 'customer': // This now covers regular users, salon owners, and stylists
-                    default:
-                        // You might add more specific logic here later based on `ownedSalons` or `associatedSalons`
-                        // For example: if (profile.ownedSalons && profile.ownedSalons.length > 0) redirectPath = AppRoutes.SALON_DASHBOARD;
-                        // For now, all 'customer' roles go to the general user dashboard.
-                        redirectPath = AppRoutes.USER_DASHBOARD;
-                        break;
-                }
+                // switch (profile.role) {
+                //     case 'admin':
+                //         redirectPath = AppRoutes.ADMIN_DASHBOARD; // Redirect to admin dashboard
+                //         break;
+                //     case 'customer': // This now covers regular users, salon owners, and stylists
+                //     default:
+                //         // You might add more specific logic here later based on `ownedSalons` or `associatedSalons`
+                //         // For example: if (profile.ownedSalons && profile.ownedSalons.length > 0) redirectPath = AppRoutes.SALON_DASHBOARD;
+                //         // For now, all 'customer' roles go to the general user dashboard.
+                //         redirectPath = AppRoutes.USER_DASHBOARD;
+                //         break;
+                // }
 
                 toast.success("Signed in with Google successfully!");
                 router.push(redirectPath);

@@ -1,52 +1,45 @@
 // src/hooks/useUserProfile.ts
 
 import { useState, useEffect } from 'react';
-import { ensureUserProfile } from '../lib/authService'; // Use the callable function wrapper
-import { UserProfile, UserRole } from '../types';
+import { ensureUserProfile } from '../lib/authService';
+import { UserProfile } from '../types';
 import { toast } from 'sonner';
 
-export const useUserProfile = (userId: string | null, expectedRole: UserRole) => {
+export const useUserProfile = (userId: string | null) => {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-    const [profileLoading, setProfileLoading] = useState<boolean>(true);
+    const [profileLoading, setProfileLoading] = useState<boolean>(true); // Initial state is true
     const [profileError, setProfileError] = useState<string | null>(null);
 
     useEffect(() => {
+        console.log("useUserProfile useEffect triggered. userId:", userId);
         const fetchProfile = async () => {
             if (!userId) {
+                // If no userId is provided (e.g., user is not logged in yet or logged out)
+                console.log("useUserProfile: No userId, setting profileLoading to false.");
                 setProfileLoading(false);
+                setUserProfile(null);
+                setProfileError(null);
                 return;
             }
 
-            setProfileLoading(true);
-            setProfileError(null);
+            setProfileLoading(true); // Set to true at the start of fetching
+            setProfileError(null); // Clear previous errors
+            console.log("useUserProfile: Fetching profile for userId:", userId);
 
             try {
-                // Call the Cloud Function to get/ensure the profile
-                const profile = await ensureUserProfile(); // This now calls the Cloud Function
+                // Call the Cloud Function to get/ensure the profile for the given userId
+                // Assuming ensureUserProfile fetches the profile for the currently authenticated user.
+                const profile = await ensureUserProfile();
 
                 if (!profile) {
                     const errorMessage = "Your user profile could not be found.";
+                    console.error("useUserProfile: " + errorMessage);
                     toast.error(errorMessage);
                     setProfileError(errorMessage);
                     setUserProfile(null);
                     return;
                 }
-
-                // IMPORTANT: The `profile.role` from the Cloud Function will be 'admin' or 'customer'.
-                // If `expectedRole` is 'salon' or 'stylist', you'll need to check `ownedSalons` or `associatedSalons`.
-                // For now, this checks against the top-level 'role'.
-                // A more robust check might be:
-                // if (expectedRole === 'customer' && profile.role !== 'customer' && profile.role !== 'admin') { /* Error */ }
-                // or specific checks for salon owner/staff based on `profile.ownedSalons` or `profile.associatedSalons`.
-                // For now, we'll keep it simple based on the `role` field.
-                if (profile.role !== expectedRole) {
-                    const errorMessage = `Access Denied: This page is for '${expectedRole}' users only. Your role is '${profile.role}'.`;
-                    toast.error(errorMessage);
-                    setProfileError(errorMessage);
-                    setUserProfile(null);
-                    return;
-                }
-
+                console.log("useUserProfile: Profile fetched successfully:", profile);
                 setUserProfile(profile);
 
             } catch (error) {
@@ -56,12 +49,13 @@ export const useUserProfile = (userId: string | null, expectedRole: UserRole) =>
                 setProfileError(errorMessage);
                 setUserProfile(null);
             } finally {
+                console.log("useUserProfile: Setting profileLoading to false (finally block).");
                 setProfileLoading(false);
             }
         };
 
         fetchProfile();
-    }, [userId, expectedRole]);
+    }, [userId]); // Dependency array now only includes userId
 
     return { userProfile, profileLoading, profileError };
 };
