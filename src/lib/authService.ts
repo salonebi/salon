@@ -3,25 +3,23 @@
 import { User } from 'firebase/auth'; // User is still needed for type hints in ensureUserProfile
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-// Removed 'doc' and 'setDoc' imports as createUserProfile is removed
-// Removed 'db' import as direct Firestore access for profiles is centralized in functions
 import { auth, app } from './firebase'; // Only import auth and app now
 
 import {
     UserProfile,
-    UserRole, // UserRole is still needed for updateUserRole
+    UserRole,
     GetUserProfileCallableData,
     GetUserProfileCallableResult,
     UpdateUserProfileCallableData,
     UpdateUserProfileCallableResult,
     GetAllUserProfilesCallableResult,
     EnsureUserProfileCallableResult,
-    UserProfileCallableResult // NEW: Now correctly imported
-} from '../types';
+} from '../types'; // Updated imports
 
-const storage = getStorage();
-const functions = getFunctions(app);
+const storage = getStorage(app); // Pass the app instance to getStorage
+const functions = getFunctions(app); // Pass the app instance to getFunctions
 
+// Callable function references
 const getAuthUserProfileCallable = httpsCallable<GetUserProfileCallableData, GetUserProfileCallableResult>(functions, 'getAuthUserProfile');
 const updateAuthUserProfileCallable = httpsCallable<UpdateUserProfileCallableData, UpdateUserProfileCallableResult>(functions, 'updateAuthUserProfile');
 const getAllUserProfilesCallable = httpsCallable<void, GetAllUserProfilesCallableResult>(functions, 'getAllUserProfiles');
@@ -38,11 +36,13 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         const profileData = result.data;
 
         if (profileData) {
+            // Convert ISO strings from CF back to Date objects for client-side use
             return {
                 ...profileData,
-                createdAt: new Date(profileData.createdAt),
-                updatedAt: profileData.updatedAt ? new Date(profileData.updatedAt) : undefined,
-            } as UserProfile;
+                createdAt: new Date(profileData.createdAt) as any, // Cast to any to match Timestamp type
+                lastLoginAt: new Date(profileData.lastLoginAt) as any, // Cast to any to match Timestamp type
+                updatedAt: profileData.updatedAt ? new Date(profileData.updatedAt) as any : undefined,
+            } as UserProfile; // Cast to UserProfile
         }
         return null;
     } catch (error) {
@@ -63,41 +63,18 @@ export const ensureUserProfile = async (): Promise<UserProfile> => {
         if (!profileData) {
             throw new Error("Failed to ensure user profile: no data returned.");
         }
+        // Convert ISO strings from CF back to Date objects for client-side use
         return {
             ...profileData,
-            createdAt: new Date(profileData.createdAt),
-            updatedAt: profileData.updatedAt ? new Date(profileData.updatedAt) : undefined,
-        } as UserProfile;
+            createdAt: new Date(profileData.createdAt) as any, // Cast to any to match Timestamp type
+            lastLoginAt: new Date(profileData.lastLoginAt) as any, // Cast to any to match Timestamp type
+            updatedAt: profileData.updatedAt ? new Date(profileData.updatedAt) as any : undefined,
+        } as UserProfile; // Cast to UserProfile
     } catch (error) {
         console.error("Error ensuring user profile via Cloud Function:", error);
         throw error;
     }
 };
-
-// REMOVED: The old createUserProfile function is now gone as its logic is in ensureUserProfile CF.
-/*
-export const createUserProfile = async (user: User, defaultRole: UserRole): Promise<UserProfile> => {
-    const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'default-app-id';
-    const userProfileRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile/data`);
-
-    const newUserProfile: UserProfile = {
-        uid: user.uid,
-        displayName: user.displayName ?? 'New User',
-        email: user.email ?? null,
-        role: defaultRole,
-        createdAt: new Date(),
-        photoURL: user.photoURL ?? null,
-    };
-
-    try {
-        await setDoc(userProfileRef, newUserProfile, { merge: true });
-        return newUserProfile;
-    } catch (error) {
-        console.error("Error creating user profile:", error);
-        throw error;
-    }
-};
-*/
 
 
 /**
@@ -118,6 +95,9 @@ export const updateUserProfile = async (
         const photoRef = ref(storage, `profile-photos/${userIdForPhoto}/${newPhoto.name}`);
         await uploadBytes(photoRef, newPhoto);
         updatePayload.photoURL = await getDownloadURL(photoRef);
+    } else if (updates.photoURL !== undefined) {
+        // If photoURL is explicitly set (e.g., to null to remove it)
+        updatePayload.photoURL = updates.photoURL;
     }
 
     try {
@@ -154,9 +134,10 @@ export const getAllUserProfiles = async (): Promise<UserProfile[]> => {
 
         return profilesData.map(profile => ({
             ...profile,
-            createdAt: new Date(profile.createdAt),
-            updatedAt: profile.updatedAt ? new Date(profile.updatedAt) : undefined,
-        })) as UserProfile[];
+            createdAt: new Date(profile.createdAt) as any, // Cast to any to match Timestamp type
+            lastLoginAt: new Date(profile.lastLoginAt) as any, // Cast to any to match Timestamp type
+            updatedAt: profile.updatedAt ? new Date(profile.updatedAt) as any : undefined,
+        })) as UserProfile[]; // Cast to UserProfile[]
     } catch (error) {
         console.error("Error fetching all user profiles via Cloud Function:", error);
         throw error;

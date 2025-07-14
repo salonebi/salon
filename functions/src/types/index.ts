@@ -1,13 +1,35 @@
 // src/types/index.ts
 
 import { User } from 'firebase/auth';
+import { Timestamp } from 'firebase/firestore';
 
 /**
  * Defines the possible roles a user can have in the application.
- * Using a string literal union type provides type safety and autocompletion.
  * 'null' is included to represent a state where the role is not yet determined or applicable.
  */
-export type UserRole = 'admin' | 'user' | 'salon' | null;
+export type UserRole = 'admin' | 'user' | 'salon' | 'customer' | null; // Merged roles
+
+/**
+ * Defines the structure for a staff association within `associatedSalons`.
+ * Stored in: artifacts/{appId}/public/data/salons/{salonId}/staff/{staffUserId}
+ */
+export interface AssociatedSalon {
+  salonId: string;
+  role: 'manager' | 'stylist' | 'receptionist' | 'other'; // Specific role within THAT salon
+  startDate: Timestamp; // Use Timestamp for consistency with Firestore
+  endDate?: Timestamp; // Optional end date
+}
+
+/**
+ * Define the Address map structure
+ */
+export interface UserAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+}
 
 /**
  * Describes the structure of a user's profile data as stored in your database (e.g., Firestore).
@@ -18,9 +40,15 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   photoURL?: string | null; // Optional, as it might not always be present
+  phoneNumber?: string | null; // Optional
   role: UserRole;
-  createdAt: Date; // Useful for tracking when the user profile was created
-  updatedAt?: Date; // Added for completeness, if your functions set it
+  createdAt: Timestamp; // Now using Timestamp
+  updatedAt?: Timestamp; // Now using Timestamp
+  lastLoginAt?: Timestamp; // Added from new types, optional
+  ownedSalons?: string[]; // Array of salon IDs
+  associatedSalons?: AssociatedSalon[]; // Array of staff associations
+  favoriteSalons?: string[]; // Array of salon IDs
+  address?: UserAddress | null; // Optional address map
 }
 
 /**
@@ -129,9 +157,10 @@ export interface GetUserProfileCallableData {
 /**
  * Base return type for user profile callable functions where dates are ISO strings.
  */
-export type UserProfileCallableResult = Omit<UserProfile, 'createdAt' | 'updatedAt'> & { // ADD 'export' HERE
+export type UserProfileCallableResult = Omit<UserProfile, 'createdAt' | 'updatedAt' | 'lastLoginAt'> & {
   createdAt: string;
   updatedAt?: string;
+  lastLoginAt?: string;
 };
 
 /**
@@ -142,7 +171,7 @@ export type GetUserProfileCallableResult = UserProfileCallableResult | null;
 /**
  * Input for the updateAuthUserProfile callable function.
  */
-export interface UpdateUserProfileCallableData extends Partial<Omit<UserProfile, 'createdAt' | 'updatedAt'>> {
+export interface UpdateUserProfileCallableData extends Partial<Omit<UserProfile, 'createdAt' | 'updatedAt' | 'lastLoginAt'>> {
   targetUid?: string;
   role?: UserRole;
 }

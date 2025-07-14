@@ -3,7 +3,7 @@
 'use client';
 
 import { useState } from 'react';
-import { updateUserProfile } from '../lib/authService'; // This function is now updated internally
+import { updateUserProfile } from '../lib/authService'; // This function is now updated internally to call CF
 import { ProfileOperations, UserProfile } from '../types';
 import { toast } from 'sonner';
 

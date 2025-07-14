@@ -1,8 +1,9 @@
 // functions/src/salons/addSalon.ts
 
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
-import { db, authAdmin, FieldValueAdmin, assertAdmin, getUserProfilePath, getSalonsCollectionPath } from '../utils/firebaseAdmin';
-import { AddSalonData } from '../types';
+import { db, FieldValueAdmin, assertAdmin, getSalonsCollectionPath } from '../utils/firebaseAdmin'; // Removed authAdmin as it's no longer used
+import { AddSalonData } from '../types'; // Assuming 'types' is resolved via tsconfig paths or relative path
+
 /**
  * Callable Cloud Function to add a new salon.
  * Requires admin privileges.
@@ -14,50 +15,32 @@ export const addSalon = onCall(async (request: CallableRequest<AddSalonData>) =>
   const { name, address, description, ownerEmail } = request.data;
   const appId = process.env.FIREBASE_APP_ID || 'default-app-id';
 
+  // Ensure the caller is an admin
   await assertAdmin(request, appId);
 
   if (!name || !address || !description || !ownerEmail) {
     throw new HttpsError('invalid-argument', 'Missing required salon fields or owner email.');
   }
 
-  let ownerId: string;
-  try {
-    const userRecord = await authAdmin.getUserByEmail(ownerEmail);
-    ownerId = userRecord.uid;
-  } catch (error: any) {
-    console.error("Error looking up owner by email:", ownerEmail, error);
-    if (error.code === 'auth/user-not-found') {
-      throw new HttpsError('not-found', `User with email ${ownerEmail} not found. Please ensure the user exists.`);
-    }
-    throw new HttpsError('internal', 'Failed to verify owner email.', error.message);
-  }
+  // --- MODIFICATION START ---
+  // As per request to change 'getUserByEmail()', we are now directly using ownerEmail
+  // as the identifier. This removes the Firebase Auth user existence verification.
+  // The 'ownerId' field will now store the email address provided.
+  const ownerIdentifier = ownerEmail; // Store the email directly
+  // --- MODIFICATION END ---
 
   try {
+    // Add the new salon document to Firestore
     const newSalonRef = await db.collection(getSalonsCollectionPath(appId)).add({
       name,
       address,
       description,
-      ownerId,
+      ownerId: ownerIdentifier, // Store the owner's identifier (now email)
       createdAt: FieldValueAdmin.serverTimestamp(),
       updatedAt: FieldValueAdmin.serverTimestamp(),
     });
 
-    const ownerProfileRef = db.doc(getUserProfilePath(appId, ownerId));
-    const ownerProfileSnap = await ownerProfileRef.get();
-
-    if (ownerProfileSnap.exists && ownerProfileSnap.data()?.role === 'user') {
-      await ownerProfileRef.update({ role: 'salon' });
-      console.log(`Updated owner ${ownerId} role to 'salon' for new salon ${newSalonRef.id}`);
-    } else if (!ownerProfileSnap.exists) {
-      await ownerProfileRef.set({
-        email: ownerEmail,
-        role: 'salon',
-        createdAt: FieldValueAdmin.serverTimestamp(),
-      }, { merge: true });
-      console.log(`Created default 'salon' profile for new owner ${ownerId}.`);
-    }
-
-    console.log(`Invitation to manage salon ${name} could be sent to ${ownerEmail}.`);
+    console.log(`Salon '${name}' added with owner identifier (email) '${ownerIdentifier}'.`);
     return { id: newSalonRef.id, message: 'Salon added successfully!' };
   } catch (error: any) {
     console.error("Error adding salon in Cloud Function:", error);

@@ -8,3 +8,4 @@ export { searchUsersByEmail } from './users/searchUsers';
 export { getAuthUserProfile } from './users/getAuthUserProfile'; // NEW
 export { updateAuthUserProfile } from './users/updateAuthUserProfile'; // NEW
 export { getAllUserProfiles } from './users/getAllUserProfiles'; // NEW
+export { ensureUserProfile } from './users/ensureUserProfile'
