@@ -1,66 +1,176 @@
 // src/types/index.ts
 
-import { User } from 'firebase/auth';
-import { Timestamp } from 'firebase/firestore';
+// Importing Timestamp from Firebase client SDK for client-side type definitions
+import { Timestamp } from 'firebase/firestore'; 
+import { User } from 'firebase/auth'; 
 
 /**
- * Defines the possible roles a user can have in the application.
- * 'null' is included to represent a state where the role is not yet determined or applicable.
+ * Defines the possible high-level roles a user can have in the application.
+ * 'admin' for global website administrators.
+ * 'customer' for all other users (regular clients, salon owners, stylists, etc.).
  */
-export type UserRole = 'admin' | 'user' | 'salon' | 'customer' | null; // Merged roles
+export type UserRole = 'admin' | 'customer';
+// --- Shared Interface Structures ---
 
-/**
- * Defines the structure for a staff association within `associatedSalons`.
- * Stored in: artifacts/{appId}/public/data/salons/{salonId}/staff/{staffUserId}
- */
+// Defines the structure for an associated salon (for users who work at salons)
 export interface AssociatedSalon {
   salonId: string;
-  role: 'manager' | 'stylist' | 'receptionist' | 'other'; // Specific role within THAT salon
-  startDate: Timestamp; // Use Timestamp for consistency with Firestore
-  endDate?: Timestamp; // Optional end date
+  role: 'stylist' | 'manager' | 'receptionist' | 'other'; // Specific role within THAT salon
+  startDate: Timestamp; // When they started working here
+  endDate?: Timestamp; // Optional end date if their employment ended
 }
 
-/**
- * Define the Address map structure
- */
+// Defines the structure for a user's address
 export interface UserAddress {
   street?: string;
   city?: string;
   state?: string;
   zipCode?: string;
-  country?: string;
+  country?: string; // Good for internationalization
 }
 
+// --- Main Document Interfaces ---
+
 /**
- * Describes the structure of a user's profile data as stored in your database (e.g., Firestore).
- * This is separate from the Firebase Auth User object and contains application-specific data.
+ * Describes the structure of a user's profile data as stored in Firestore.
+ * This is the SOURCE OF TRUTH for user data, populated and managed by Cloud Functions.
  */
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
-  photoURL?: string | null; // Optional, as it might not always be present
-  phoneNumber?: string | null; // Optional
+  photoURL?: string | null;
+  phoneNumber?: string | null; // New: Optional phone number
+  createdAt: Timestamp; // New: Firestore Timestamp on creation
+  lastLoginAt: Timestamp; // New: Firestore Timestamp, updated on each login
+  updatedAt?: Timestamp; // Optional: When the profile was last modified
   role: UserRole;
-  createdAt: Timestamp; // Now using Timestamp
-  updatedAt?: Timestamp; // Now using Timestamp
-  lastLoginAt?: Timestamp; // Added from new types, optional
-  ownedSalons?: string[]; // Array of salon IDs
-  associatedSalons?: AssociatedSalon[]; // Array of staff associations
-  favoriteSalons?: string[]; // Array of salon IDs
-  address?: UserAddress | null; // Optional address map
+  ownedSalons?: string[]; // New: Array of salon IDs this user owns
+  associatedSalons?: AssociatedSalon[]; // New: Array of salons this user works for
+  favoriteSalons?: string[]; // New: Array of salon IDs this user has favorited
+  address?: UserAddress | null; // New: Optional user address map
 }
+
+/**
+ * Describes the structure of a salon document as stored in Firestore.
+ */
+export interface Salon {
+  id: string; // Document ID from Firestore
+  name: string;
+  description: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country?: string;
+    latitude: number;
+    longitude: number;
+  };
+  phoneNumber: string;
+  email?: string;
+  website?: string;
+  imageUrls?: string[];
+  openingHours: {
+    monday: { open: string | null; close: string | null; isClosed: boolean };
+    tuesday: { open: string | null; close: string | null; isClosed: boolean };
+    wednesday: { open: string | null; close: string | null; isClosed: boolean };
+    thursday: { open: string | null; close: string | null; isClosed: boolean };
+    friday: { open: string | null; close: string | null; isClosed: boolean };
+    saturday: { open: string | null; close: string | null; isClosed: boolean };
+    sunday: { open: string | null; close: string | null; isClosed: boolean };
+  };
+  services: {
+    id: string; // Unique ID for the service (e.g., auto-generated or slug)
+    name: string;
+    description: string;
+    price: number;
+    durationMinutes: number;
+    category: string; // e.g., "Hair", "Nails"
+    staffRequired: boolean;
+    availableStaffIds?: string[]; // IDs of staff (from salon_staff collection) capable of this service
+  }[];
+  ownerIds: string[]; // Array of user UIDs who own this salon
+  ratings: {
+    average: number;
+    count: number;
+  };
+  featured: boolean;
+  status: 'active' | 'inactive' | 'pending_approval' | 'suspended';
+  createdAt: Timestamp;
+  lastUpdated: Timestamp;
+  googleCalendarConfig?: { // New: For Google Calendar integration
+    mainCalendarId: string;
+    timezone: string;
+  };
+}
+
+/**
+ * Describes the structure of a staff member document within the top-level `salon_staff` collection.
+ */
+export interface SalonStaff {
+  salonId: string; // ID of the salon they work for
+  userId: string; // User ID of the staff member (links to UserProfile)
+  role: 'stylist' | 'manager' | 'receptionist' | 'other'; // Role specific to this salon
+  bio?: string;
+  photoURL?: string; // Staff-specific photo (can override user.photoURL for this role)
+  servicesOffered: string[]; // Array of `service.id`s they can perform
+  active: boolean; // Is this staff member currently active at the salon?
+  createdAt: Timestamp;
+  lastUpdated: Timestamp;
+  googleCalendarId?: string; // New: The Google Calendar ID for this staff member (if bookable)
+}
+
+/**
+ * Describes the structure of a booking document as stored in Firestore.
+ */
+export interface Booking {
+  id: string; // Document ID from Firestore
+  userId: string;
+  salonId: string;
+  staffUserId?: string; // Optional: if a specific staff member was booked
+  serviceBooked: {
+    id: string;
+    name: string;
+    price: number;
+    durationMinutes: number;
+  };
+  bookingDate: Timestamp; // Start time of the booking
+  durationMinutes: number;
+  status: 'confirmed' | 'cancelled' | 'completed' | 'rescheduled';
+  totalPrice: number;
+  notes?: string;
+  createdAt: Timestamp;
+  lastUpdated: Timestamp;
+  googleCalendarEventId: string; // New: The ID of the corresponding Google Calendar event
+  googleCalendarId: string; // New: The ID of the calendar where the event lives
+  googleCalendarEventLink?: string; // New: Optional link to the Google Calendar event
+}
+
+/**
+ * Describes the structure of a review document as stored in Firestore.
+ */
+export interface Review {
+  id: string; // Document ID from Firestore
+  userId: string;
+  salonId: string;
+  bookingId: string;
+  rating: number; // e.g., 1-5 stars
+  comment?: string;
+  createdAt: Timestamp;
+}
+
+// --- Context & Hooks Types ---
 
 /**
  * Defines the shape of the object provided by the AuthContext.
  * This is what components will consume when they use the `useAuth()` hook.
  */
 export interface AuthContextType {
-  user: User | null;         // The raw Firebase Auth user object (contains uid, email, etc.)
-  userId: string | null;     // The user's unique ID (UID) for quick access
-  userRole: UserRole;        // The user's application-specific role
-  loading: boolean;          // A flag to indicate if the authentication state is still loading
-  setUserRole: (role: UserRole) => void; // A function to allow updating the role in the context state if needed
+  user: User | null; // The raw Firebase Auth user object (contains uid, email, etc.)
+  userId: string | null; // The user's unique ID (UID) for quick access
+  userProfile: UserProfile | null; // The full application-specific user profile from Firestore
+  loading: boolean; // A flag to indicate if the authentication state and profile loading
 }
 
 /**
@@ -83,113 +193,97 @@ export interface ProfileOperations {
   profileError: string | null;
 }
 
-export interface Salon {
-  id: string; // Document ID from Firestore
-  name: string;
-  address: string;
-  description: string;
-  ownerId: string; // The userId of the user who is the primary owner/manager of this salon
-  // Add other salon-specific fields as needed (e.g., phone, email, services, images, operatingHours)
-}
+// --- Callable Function Data/Result Types ---
 
-/**
- * Defines the structure for a Staff member document within a Salon's sub-collection.
- * Stored in: artifacts/{appId}/public/data/salons/{salonId}/staff/{staffUserId}
- */
-export interface SalonStaff {
-  id: string; // The userId of the staff member (same as their global Firebase UID)
-  name: string; // Staff member's display name
-  email: string; // Staff member's email
-  roleInSalon: 'manager' | 'stylist' | 'receptionist' | 'other'; // Role specific to this salon
-  // Add other staff-specific fields as needed (e.g., specialties, availability, linkedGoogleCalendarId)
-}
+// Base return type for user profile callable functions where dates are ISO strings for client conversion
+export type UserProfileCallableResult = Omit<UserProfile, 'createdAt' | 'lastLoginAt' | 'updatedAt'> & {
+  createdAt: string; // ISO string from CF
+  lastLoginAt: string; // ISO string from CF
+  updatedAt?: string; // ISO string from CF
+};
 
-/**
- * Defines the expected shape of data returned by callable Cloud Functions.
- */
-export interface CallableResult {
-  message: string;
-  id?: string; // Optional, as addSalon returns an ID, but update/delete might not
-}
+// Data passed to ensureUserProfile callable function (none, auth context provides info)
+export type EnsureUserProfileCallableData = void;
+// Result returned from ensureUserProfile callable function (the UserProfile data with ISO strings)
+export type EnsureUserProfileCallableResult = UserProfileCallableResult;
 
-// --- New interfaces for Callable Function input data (client-side view) ---
+
+// Data passed to getAuthUserProfile callable function
+export interface GetUserProfileCallableData {
+  uid: string;
+}
+// Result returned from getAuthUserProfile callable function
+export type GetUserProfileCallableResult = UserProfileCallableResult | null;
+
+
+// Data passed to updateAuthUserProfile callable function
+// `Partial<UserProfile>` implies optional fields, but exclude Timestamps as they are CF-managed
+export interface UpdateUserProfileCallableData extends Partial<Omit<UserProfile, 'createdAt' | 'lastLoginAt' | 'updatedAt'>> {
+  targetUid?: string; // Optional: UID of the user to update (if admin is updating another user)
+  // `role` is also explicitly allowed for admins to change
+  role?: UserRole;
+  // Arrays for `ownedSalons`, `associatedSalons`, `favoriteSalons` can be passed as full arrays
+  // or use FieldValue.arrayUnion/arrayRemove via a Cloud Function if more granular
+  // client-side control over array elements is desired. For now, sending the full array is fine
+  // if CF handles validation.
+  ownedSalons?: string[];
+  associatedSalons?: AssociatedSalon[];
+  favoriteSalons?: string[];
+}
+// Result returned from updateAuthUserProfile callable function
+export type UpdateUserProfileCallableResult = { success: boolean; message: string };
+
+
+// Data passed to getAllUserProfiles callable function (none, auth context provides info)
+export type GetAllUserProfilesCallableData = void;
+// Result returned from getAllUserProfiles callable function
+export type GetAllUserProfilesCallableResult = UserProfileCallableResult[];
+
+// --- Callable Function Types for Salon Operations (from your old file, for completeness) ---
 
 /**
  * Defines the input data for the 'addSalon' callable function.
- * This is what the client sends to the Cloud Function.
  */
 export interface AddSalonData {
   name: string;
-  address: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country?: string;
+    latitude: number;
+    longitude: number;
+  };
   description: string;
-  ownerEmail: string;
+  phoneNumber: string;
+  email?: string;
+  website?: string;
+  imageUrls?: string[];
+  openingHours: Salon['openingHours']; // Use the Salon interface's type
+  services: Salon['services']; // Use the Salon interface's type
+  // ownerEmail is not needed here if ownerId is passed or inferred from auth
+  // Will be `ownerIds: [request.auth.uid]` on the backend
 }
 
 /**
  * Defines the input data for the 'updateSalon' callable function.
- * This is what the client sends to the Cloud Function.
  */
-export interface UpdateSalonData {
-  id: string;
-  name?: string;
-  address?: string;
-  description?: string;
-  ownerEmail?: string;
+export interface UpdateSalonData extends Partial<Omit<Salon, 'id' | 'createdAt' | 'lastUpdated' | 'ownerIds' | 'ratings'>> {
+  id: string; // Required for update
+  // ownerIds should be updated via specific admin/owner functions, not generic updateSalon
+  // ratings are updated by review functions
 }
 
 /**
  * Defines the input data for the 'deleteSalon' callable function.
- * This is what the client sends to the Cloud Function.
  */
 export interface DeleteSalonData {
   id: string;
 }
 
-// --- NEW TYPES FOR CALLABLE FUNCTIONS (continued) ---
-
-/**
- * Input for the getAuthUserProfile callable function.
- */
-export interface GetUserProfileCallableData {
-  uid?: string;
-}
-
-/**
- * Base return type for user profile callable functions where dates are ISO strings.
- */
-export type UserProfileCallableResult = Omit<UserProfile, 'createdAt' | 'updatedAt' | 'lastLoginAt'> & {
-  createdAt: string;
-  updatedAt?: string;
-  lastLoginAt?: string;
-};
-
-/**
- * Return type for getAuthUserProfile callable function.
- */
-export type GetUserProfileCallableResult = UserProfileCallableResult | null;
-
-/**
- * Input for the updateAuthUserProfile callable function.
- */
-export interface UpdateUserProfileCallableData extends Partial<Omit<UserProfile, 'createdAt' | 'updatedAt' | 'lastLoginAt'>> {
-  targetUid?: string;
-  role?: UserRole;
-}
-
-/**
- * Return type for updateAuthUserProfile callable function.
- */
-export interface UpdateUserProfileCallableResult {
+// Result type for general callable functions (e.g., add/update/delete salon)
+export interface CallableResult {
   message: string;
+  id?: string; // Optional, as addSalon returns an ID, but update/delete might not
 }
-
-/**
- * Return type for getAllUserProfiles callable function.
- */
-export type GetAllUserProfilesCallableResult = UserProfileCallableResult[];
-
-/**
- * Return type for ensureUserProfile callable function.
- * It always returns a UserProfile (or throws an error).
- */
-export type EnsureUserProfileCallableResult = UserProfileCallableResult;

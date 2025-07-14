@@ -7,14 +7,15 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useUserProfile } from '@/hooks/useUserProfile'; // Corrected hook import
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/button'; //
 
 const UserDashboardPage: React.FC = () => {
-    const { user, userId, userRole, loading: authLoading } = useAuth();
+    const { user, userId, loading: authLoading } = useAuth(); // Removed userRole from destructuring as useUserProfile handles it
     const router = useRouter();
 
-    // The useUserProfile hook now fetches and validates the profile for the 'user' role.
-    const { userProfile, profileLoading, profileError } = useUserProfile(userId, 'user');
+    // The useUserProfile hook now fetches and validates the profile for the 'customer' role.
+    // This is aligned with our updated UserRole type in src/types/index.ts.
+    const { userProfile, profileLoading, profileError } = useUserProfile(userId, 'customer');
 
     useEffect(() => {
         // This effect primarily handles redirection if auth state is resolved but invalid.

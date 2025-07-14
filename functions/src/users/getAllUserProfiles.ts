@@ -12,7 +12,7 @@ import { UserProfile } from '../types/index';
  * @returns {Promise<UserProfile[]>} - A list of all user profiles.
  */
 export const getAllUserProfiles = onCall(async (request: CallableRequest<void>) => {
-  const appId = process.env.FIREBASE_APP_ID || 'default-app-id';
+  const appId = "1:514813479729:web:4a0ec92280f130e8b63e10";
 
   // Ensure the caller is an admin
   await assertAdmin(request, appId);
